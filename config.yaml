@@ -1,0 +1,34 @@
+# mpBAX Configuration Template
+
+# Random seed for reproducibility
+seed: 42
+
+# Maximum number of optimization loops
+max_loops: 10
+
+# Number of initial samples to generate
+n_initial: 20
+
+# Checkpoint settings
+checkpoint:
+  # Directory to save checkpoints
+  dir: "checkpoints"
+
+  # Frequency of checkpointing (1 = every loop, 2 = every 2 loops, etc.)
+  freq: 1
+
+  # Resume from checkpoint (null = start fresh, "latest" = resume from latest, or specify loop number like 5)
+  resume_from: null
+
+# Number of candidates to propose each loop
+n_propose: 10
+
+# Objectives configuration
+objectives:
+  - name: "objective_1"
+    # Input dimension for this objective's simulation
+    input_dim: 2
+
+  # Add more objectives for multi-objective optimization
+  # - name: "objective_2"
+  #   input_dim: 3
