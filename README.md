@@ -198,6 +198,35 @@ manager = CheckpointManager('checkpoints')
 manager.delete_checkpoints_after(loop=3)  # Keep only loops 0-3
 ```
 
+### Checkpoint Directory Structure
+
+Checkpoints are organized by oracle names for clarity:
+
+```
+checkpoints/
+├── config.yaml          # Run configuration
+├── state.pkl            # Run state
+├── quadratic/           # Named by oracle name!
+│   ├── data_0.pkl
+│   ├── data_1.pkl
+│   ├── model_0_best.pkl
+│   ├── model_0_final.pkl
+│   └── ...
+```
+
+For multi-oracle optimization:
+
+```
+checkpoints_multi/
+├── obj1_2d/    # Oracle 1 named "obj1_2d"
+├── obj2_3d/    # Oracle 2 named "obj2_3d"
+```
+
+**Important:**
+- Oracle names must be unique
+- Special characters are sanitized (e.g., "My Oracle #1" → "My_Oracle_1")
+- Old checkpoints using `oracle_0/`, `oracle_1/` naming still load correctly (backward compatible)
+
 ## Directory Structure
 
 ```
@@ -467,7 +496,8 @@ model_class = lambda input_dim: DANetModel(
     test_ratio=0.05,      # Train/test split ratio
     batch_size=1000,      # Training batch size
     early_stop_patience=10,  # Early stopping patience
-    device=None           # 'cuda', 'cpu', or None for auto
+    device=None,          # 'cuda', 'cpu', or None for auto
+    weight_new_data=10.0  # Weight for recent loop data (default: 10.0)
 )
 
 engine = Engine(
@@ -482,6 +512,24 @@ engine = Engine(
 - `'fc'`: Standard fully connected (all features processed equally)
 - `'split'`: Concatenates last 2 input features before final layer (useful for spatial coordinates)
 - `'sine'`: Uses sine activation instead of ReLU (experimental)
+
+**Sample Weights for Recent Data:**
+
+DANetModel automatically assigns higher weights to recently acquired data:
+- Data from most recent loop: weight = `weight_new_data` (default: 10.0)
+- Data from older loops: weight = 1.0
+
+This emphasizes recent observations in the loss function, similar to importance weighting in active learning:
+
+```python
+# Example: Loop 3 with accumulated data
+# Loop 0: 20 samples (weight=1.0)
+# Loop 1: 10 samples (weight=1.0)
+# Loop 2: 10 samples (weight=1.0)
+# Loop 3: 10 samples (weight=10.0) ← Recent data emphasized
+```
+
+Set `weight_new_data=1.0` to disable weighting and treat all data equally.
 
 **See also:** `mpbax/examples/example_da_net_optimization.py` for complete example
 
