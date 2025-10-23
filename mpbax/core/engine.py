@@ -66,6 +66,11 @@ class Engine:
         assert len(self.oracle_configs) == n_oracles, \
             f"Config has {len(self.oracle_configs)} oracles, but {n_oracles} fn_oracles provided"
 
+        # Validate oracle names are unique
+        oracle_names = [cfg['name'] for cfg in self.oracle_configs]
+        if len(oracle_names) != len(set(oracle_names)):
+            raise ValueError(f"Oracle names must be unique, got: {oracle_names}")
+
         # Instantiate algorithm if not provided
         if algorithm is None:
             self.algorithm = self._instantiate_algorithm()
@@ -134,7 +139,7 @@ class Engine:
 
                     # Create data handler for this loop's data
                     dh_new = DataHandler(input_dim=oracle_config['input_dim'])
-                    dh_new.add_data(X_new, Y_new)
+                    dh_new.add_data(X_new, Y_new, loop=self.current_loop)
 
                     # Store for checkpointing
                     self.data_handlers[i] = dh_new
@@ -147,17 +152,17 @@ class Engine:
             model_mode = self.config.get('model', {}).get('mode', 'retrain')
 
             for i, oracle_config in enumerate(self.oracle_configs):
-                X_train, Y_train = accumulated_data[i]
+                X_train, Y_train, metadata = accumulated_data[i]
 
                 # Check training mode
                 if model_mode == 'finetune' and self.current_loop > 0:
                     # Finetuning: continue from previous model
                     model = self.models[i]  # Reuse existing model instance
-                    model.train(X_train, Y_train)
+                    model.train(X_train, Y_train, metadata=metadata)
                 else:
                     # Retraining: create new model from scratch (default)
                     model = self.model_class(input_dim=oracle_config['input_dim'])
-                    model.train(X_train, Y_train)
+                    model.train(X_train, Y_train, metadata=metadata)
                     self.models[i] = model
 
             # Step 5: Save checkpoint
@@ -203,7 +208,7 @@ class Engine:
 
             # Create data handler
             dh = DataHandler(input_dim=oracle_config['input_dim'])
-            dh.add_data(X0, Y0)
+            dh.add_data(X0, Y0, loop=0)  # Initial data is from loop 0
             self.data_handlers.append(dh)
 
             # Initialize empty model (will be trained in first loop)
@@ -240,7 +245,7 @@ class Engine:
         """Get accumulated data for all oracles from all loops.
 
         Returns:
-            List of (X, Y) tuples, one per oracle
+            List of (X, Y, metadata) tuples, one per oracle
         """
         accumulated_data = []
 
@@ -249,21 +254,30 @@ class Engine:
             # Load all data from loop 0 to current_loop
             X_all = None
             Y_all = None
+            loop_indices_all = []
 
             for loop in range(self.current_loop + 1):
                 # For current loop, use in-memory data handler
                 if loop == self.current_loop:
-                    X, Y = self.data_handlers[i].get_data()
+                    X, Y, meta = self.data_handlers[i].get_data_with_metadata()
                 else:
                     # Load data for previous loops from checkpoint
-                    obj_dir = Path(self.config['checkpoint']['dir']) / f"obj_{i}"
-                    data_path = obj_dir / f"data_{loop}.pkl"
+                    oracle_name = self.oracle_configs[i]['name']
+                    from mpbax.core.checkpoint import _sanitize_oracle_name
+                    oracle_name_sanitized = _sanitize_oracle_name(oracle_name)
+                    oracle_dir = Path(self.config['checkpoint']['dir']) / oracle_name_sanitized
+
+                    # Backward compatibility: try old naming if new doesn't exist
+                    if not oracle_dir.exists():
+                        oracle_dir = Path(self.config['checkpoint']['dir']) / f"oracle_{i}"
+
+                    data_path = oracle_dir / f"data_{loop}.pkl"
 
                     if data_path.exists():
                         dh = DataHandler.load(str(data_path))
-                        X, Y = dh.get_data()
+                        X, Y, meta = dh.get_data_with_metadata()
                     else:
-                        X, Y = None, None
+                        X, Y, meta = None, None, {}
 
                 if X is not None:
                     if X_all is None:
@@ -273,7 +287,16 @@ class Engine:
                         X_all = np.vstack([X_all, X])
                         Y_all = np.vstack([Y_all, Y])
 
-            accumulated_data.append((X_all, Y_all))
+                    # Accumulate loop indices if available
+                    if 'loop_indices' in meta:
+                        loop_indices_all.append(meta['loop_indices'])
+
+            # Build metadata
+            metadata = {}
+            if loop_indices_all:
+                metadata['loop_indices'] = np.concatenate(loop_indices_all)
+
+            accumulated_data.append((X_all, Y_all, metadata))
 
         return accumulated_data
 

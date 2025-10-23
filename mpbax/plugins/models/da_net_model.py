@@ -374,7 +374,8 @@ class DANetModel(BaseModel):
                  early_stop_patience: Optional[int] = 10,
                  random_state: int = 1,
                  device: Optional[str] = None,
-                 verbose: bool = True):
+                 verbose: bool = True,
+                 weight_new_data: float = 10.0):
         """
         Args:
             input_dim: Input dimensionality
@@ -390,6 +391,7 @@ class DANetModel(BaseModel):
             random_state: Random seed for train/test split
             device: Device specification ('cuda', 'cpu', or None for auto)
             verbose: Print training progress
+            weight_new_data: Weight multiplier for most recent loop's data (default: 10.0)
         """
         if not TORCH_AVAILABLE:
             raise ImportError(
@@ -411,6 +413,7 @@ class DANetModel(BaseModel):
         self.early_stop_patience = early_stop_patience
         self.random_state = random_state
         self.verbose = verbose
+        self.weight_new_data = weight_new_data
 
         # Device setup
         if device is None:
@@ -432,12 +435,13 @@ class DANetModel(BaseModel):
         self.best_test_loss = float('inf')
         self.best_network_state = None
 
-    def train(self, X: np.ndarray, Y: np.ndarray) -> None:
+    def train(self, X: np.ndarray, Y: np.ndarray, metadata: dict = None) -> None:
         """Train model with input normalization and early stopping.
 
         Args:
             X: Input data with shape (n, d)
             Y: Output data with shape (n, k) where k >= 1
+            metadata: Optional metadata dict with 'loop_indices' for sample weighting
         """
         self._validate_data(X, Y)
 
@@ -464,15 +468,38 @@ class DANetModel(BaseModel):
         else:
             Y_flat = Y
 
+        # Compute sample weights from loop indices
+        sample_weights = None
+        if metadata and 'loop_indices' in metadata:
+            loop_indices = metadata['loop_indices']
+            max_loop = np.max(loop_indices)
+            # Assign higher weights to samples from the most recent loop
+            sample_weights = np.where(
+                loop_indices == max_loop,
+                self.weight_new_data,
+                1.0
+            )
+            if self.verbose:
+                n_new = np.sum(loop_indices == max_loop)
+                n_old = len(loop_indices) - n_new
+                print(f"  [DANetModel] Sample weights: {n_new} new samples (weight={self.weight_new_data}), {n_old} old samples (weight=1.0)")
+
         # Train/test split
         from sklearn.model_selection import train_test_split
-        X_train, X_test, Y_train, Y_test = train_test_split(
-            X_norm, Y_flat, test_size=self.test_ratio, random_state=self.random_state
-        )
+        if sample_weights is not None:
+            X_train, X_test, Y_train, Y_test, weights_train, weights_test = train_test_split(
+                X_norm, Y_flat, sample_weights, test_size=self.test_ratio, random_state=self.random_state
+            )
+        else:
+            X_train, X_test, Y_train, Y_test = train_test_split(
+                X_norm, Y_flat, test_size=self.test_ratio, random_state=self.random_state
+            )
+            weights_train = None
+            weights_test = None
 
         # Create data loaders
-        trainset = Dataset(X_train, Y_train)
-        testset = Dataset(X_test, Y_test)
+        trainset = Dataset(X_train, Y_train, weights=weights_train)
+        testset = Dataset(X_test, Y_test, weights=weights_test)
         trainloader = torch.utils.data.DataLoader(
             trainset, batch_size=self.batch_size, shuffle=True, num_workers=1
         )

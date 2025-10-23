@@ -23,19 +23,26 @@ class DataHandler:
         self.input_dim = input_dim
         self.X = None
         self.Y = None
+        self.loop_indices = []  # Track which loop each sample came from
 
-    def add_data(self, X: np.ndarray, Y: np.ndarray) -> None:
+    def add_data(self, X: np.ndarray, Y: np.ndarray, loop: Optional[int] = None) -> None:
         """Add new (X, Y) pairs to the dataset.
 
         Args:
             X: Input data with shape (n, d)
             Y: Output data with shape (n, k) where k >= 1
+            loop: Optional loop number to track which loop this data came from
 
         Raises:
             ValueError: If shapes are invalid
         """
         # Validate shapes
         self._validate_shapes(X, Y)
+
+        # Track loop indices if provided
+        if loop is not None:
+            loop_array = np.full(X.shape[0], loop, dtype=int)
+            self.loop_indices.append(loop_array)
 
         # Add to existing data or initialize
         if self.X is None:
@@ -54,6 +61,21 @@ class DataHandler:
         if self.X is None:
             return None, None
         return self.X.copy(), self.Y.copy()
+
+    def get_data_with_metadata(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], dict]:
+        """Get all data with metadata about loop indices.
+
+        Returns:
+            Tuple of (X, Y, metadata) where metadata is a dict containing:
+                - 'loop_indices': array of loop numbers for each sample (if tracked)
+        """
+        X, Y = self.get_data()
+        metadata = {}
+
+        if self.loop_indices:
+            metadata['loop_indices'] = np.concatenate(self.loop_indices)
+
+        return X, Y, metadata
 
     def get_size(self) -> int:
         """Get number of data points.
@@ -76,7 +98,8 @@ class DataHandler:
         data = {
             'X': self.X,
             'Y': self.Y,
-            'input_dim': self.input_dim
+            'input_dim': self.input_dim,
+            'loop_indices': self.loop_indices
         }
 
         with open(filepath, 'wb') as f:
@@ -98,6 +121,7 @@ class DataHandler:
         handler = cls(input_dim=data['input_dim'])
         handler.X = data['X']
         handler.Y = data['Y']
+        handler.loop_indices = data.get('loop_indices', [])  # Backward compatibility
 
         return handler
 

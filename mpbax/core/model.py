@@ -24,12 +24,14 @@ class BaseModel(ABC):
         self.is_trained = False
 
     @abstractmethod
-    def train(self, X: np.ndarray, Y: np.ndarray) -> None:
+    def train(self, X: np.ndarray, Y: np.ndarray, metadata: dict = None) -> None:
         """Train the model on data.
 
         Args:
             X: Input data with shape (n, d)
             Y: Output data with shape (n, k) where k >= 1
+            metadata: Optional dict with additional information about the data:
+                - 'loop_indices': array of loop numbers for each sample
         """
         pass
 
@@ -148,12 +150,13 @@ class DummyModel(BaseModel):
         super().__init__(input_dim)
         self.mean_y = None  # Will have shape (k,) for k output dimensions
 
-    def train(self, X: np.ndarray, Y: np.ndarray) -> None:
+    def train(self, X: np.ndarray, Y: np.ndarray, metadata: dict = None) -> None:
         """Train by computing mean of Y per output dimension.
 
         Args:
             X: Input data with shape (n, d)
             Y: Output data with shape (n, k) where k >= 1
+            metadata: Optional metadata (ignored by DummyModel)
         """
         self._validate_data(X, Y)
         # Compute mean per output dimension, result has shape (k,)

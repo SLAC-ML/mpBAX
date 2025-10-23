@@ -2,12 +2,38 @@
 
 import os
 import pickle
+import re
 import yaml
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from mpbax.core.data_handler import DataHandler
 from mpbax.core.model import BaseModel
+
+
+def _sanitize_oracle_name(name: str) -> str:
+    """Sanitize oracle name for use as directory name.
+
+    Replaces spaces and special characters with underscores.
+    Ensures the name is safe to use as a filesystem path.
+
+    Args:
+        name: Oracle name from config
+
+    Returns:
+        Sanitized name safe for filesystem use
+
+    Example:
+        >>> _sanitize_oracle_name("My Oracle #1")
+        'My_Oracle_1'
+    """
+    # Replace spaces and non-alphanumeric chars (except hyphen) with underscore
+    sanitized = re.sub(r'[^\w\-]', '_', name)
+    # Remove duplicate underscores
+    sanitized = re.sub(r'_+', '_', sanitized)
+    # Strip leading/trailing underscores
+    sanitized = sanitized.strip('_')
+    return sanitized
 
 
 class CheckpointManager:
@@ -77,7 +103,8 @@ class CheckpointManager:
 
         # Save data and models for each oracle
         for i, (data_handler, model, oracle_name) in enumerate(zip(data_handlers, models, oracle_names)):
-            oracle_dir = self.checkpoint_dir / f"oracle_{i}"
+            oracle_name_sanitized = _sanitize_oracle_name(oracle_name)
+            oracle_dir = self.checkpoint_dir / oracle_name_sanitized
             oracle_dir.mkdir(exist_ok=True)
 
             # Save data_loop
@@ -155,7 +182,17 @@ class CheckpointManager:
         models = []
 
         for i in range(n_oracles):
-            oracle_dir = self.checkpoint_dir / f"oracle_{i}"
+            # Try oracle name first, fall back to oracle_{i} for backward compatibility
+            oracle_name_sanitized = _sanitize_oracle_name(oracle_names[i])
+            oracle_dir = self.checkpoint_dir / oracle_name_sanitized
+
+            if not oracle_dir.exists():
+                # Backward compatibility: try old naming scheme
+                oracle_dir = self.checkpoint_dir / f"oracle_{i}"
+                if not oracle_dir.exists():
+                    raise ValueError(
+                        f"Oracle directory not found: {oracle_name_sanitized} or oracle_{i}"
+                    )
 
             # Load all data from 0 to loop
             data_handler_combined = None
@@ -201,13 +238,26 @@ class CheckpointManager:
         if not self.checkpoint_dir.exists():
             return []
 
-        # Get loops from first oracle's data files
-        oracle_0_dir = self.checkpoint_dir / "oracle_0"
-        if not oracle_0_dir.exists():
+        # Try to get oracle directory - first try from state, then fall back to oracle_0
+        oracle_dir = None
+        state_path = self.checkpoint_dir / "state.pkl"
+        if state_path.exists():
+            with open(state_path, 'rb') as f:
+                state = pickle.load(f)
+            if 'oracle_names' in state and state['oracle_names']:
+                oracle_name_sanitized = _sanitize_oracle_name(state['oracle_names'][0])
+                oracle_dir = self.checkpoint_dir / oracle_name_sanitized
+
+        # Backward compatibility: fall back to oracle_0
+        if oracle_dir is None or not oracle_dir.exists():
+            oracle_dir = self.checkpoint_dir / "oracle_0"
+
+        if not oracle_dir.exists():
             return []
 
+        # Get loops from first oracle's data files
         loops = []
-        for data_file in sorted(oracle_0_dir.glob("data_*.pkl")):
+        for data_file in sorted(oracle_dir.glob("data_*.pkl")):
             loop_num = int(data_file.stem.split('_')[1])
             loops.append(loop_num)
 
@@ -229,10 +279,20 @@ class CheckpointManager:
             state = pickle.load(f)
 
         n_oracles = state['n_oracles']
+        oracle_names = state.get('oracle_names', [])
 
         # Delete data and model files after specified loop
         for i in range(n_oracles):
-            oracle_dir = self.checkpoint_dir / f"oracle_{i}"
+            # Try oracle name first, fall back to oracle_{i}
+            if i < len(oracle_names):
+                oracle_name_sanitized = _sanitize_oracle_name(oracle_names[i])
+                oracle_dir = self.checkpoint_dir / oracle_name_sanitized
+                if not oracle_dir.exists():
+                    # Backward compatibility
+                    oracle_dir = self.checkpoint_dir / f"oracle_{i}"
+            else:
+                oracle_dir = self.checkpoint_dir / f"oracle_{i}"
+
             if not oracle_dir.exists():
                 continue
 
