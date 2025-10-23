@@ -28,16 +28,16 @@ class Engine:
         config_path: str,
         fn_oracles: List[Callable[[np.ndarray], np.ndarray]],
         model_class: type,
-        algorithm: BaseAlgorithm,
+        algorithm: Optional[BaseAlgorithm] = None,
         fn_generate: Optional[Callable[[int, int], np.ndarray]] = None
     ):
         """Initialize Engine.
 
         Args:
             config_path: Path to config.yaml file
-            fn_oracles: List of oracle functions, one per objective
+            fn_oracles: List of oracle functions, one per oracle
             model_class: Class for creating models (must be subclass of BaseModel)
-            algorithm: Algorithm instance for proposing candidates
+            algorithm: Optional algorithm instance. If None, instantiates from config.
             fn_generate: Optional function to generate initial samples.
                         Signature: (n_samples, input_dim) -> X (n_samples, input_dim)
                         If None, uses uniform random in [0, 1]^d
@@ -53,14 +53,19 @@ class Engine:
         # Store functions and classes
         self.fn_oracles = fn_oracles
         self.model_class = model_class
-        self.algorithm = algorithm
         self.fn_generate = fn_generate or self._default_generate
 
         # Initialize components
-        self.n_objectives = len(fn_oracles)
-        self.obj_configs = self.config['objectives']
-        assert len(self.obj_configs) == self.n_objectives, \
-            f"Config has {len(self.obj_configs)} objectives, but {self.n_objectives} oracles provided"
+        n_oracles = len(fn_oracles)
+        self.obj_configs = self.config['oracles']
+        assert len(self.obj_configs) == n_oracles, \
+            f"Config has {len(self.obj_configs)} oracles, but {n_oracles} fn_oracles provided"
+
+        # Instantiate algorithm if not provided
+        if algorithm is None:
+            self.algorithm = self._instantiate_algorithm()
+        else:
+            self.algorithm = algorithm
 
         # Create evaluators
         self.evaluators = []
@@ -98,37 +103,27 @@ class Engine:
         while self.current_loop < max_loops:
             print(f"\n=== Loop {self.current_loop} ===")
 
-            # Step 1: Propose and evaluate new candidates for each objective
+            # Step 1: Propose and evaluate new candidates
             if self.current_loop > 0:
                 print("Proposing new candidates...")
 
-                # Propose candidates independently for each objective
-                # since they may have different input dimensions
-                for i, (evaluator, obj_config) in enumerate(zip(self.evaluators, self.obj_configs)):
-                    # Create algorithm instance for this objective's dimension
-                    # (if objectives have different dimensions)
-                    from mpbax.core.algorithm import RandomSampling, GreedySampling
+                # Collect all predict functions
+                fn_preds = [model.predict for model in self.models]
 
-                    if isinstance(self.algorithm, RandomSampling):
-                        obj_algorithm = RandomSampling(
-                            n_propose=self.algorithm.n_propose,
-                            input_dim=obj_config['input_dim'],
-                            seed=self.seed + self.current_loop + i  # Unique seed per objective
-                        )
-                    elif isinstance(self.algorithm, GreedySampling):
-                        obj_algorithm = GreedySampling(
-                            n_propose=self.algorithm.n_propose,
-                            input_dim=obj_config['input_dim'],
-                            seed=self.seed + self.current_loop + i,
-                            n_candidates=self.algorithm.n_candidates
-                        )
-                    else:
-                        # For custom algorithms, assume they can handle dimension properly
-                        obj_algorithm = self.algorithm
+                # Call propose ONCE with all predict functions
+                X_list = self.algorithm.propose(fn_preds)
 
-                    # Propose candidates using only this objective's predict function
-                    X_new = obj_algorithm.propose([self.models[i].predict])
+                # Validate: must return one X per oracle
+                if len(X_list) != len(self.evaluators):
+                    raise ValueError(
+                        f"Algorithm returned {len(X_list)} X arrays, "
+                        f"but expected {len(self.evaluators)} (one per oracle)"
+                    )
 
+                # Evaluate each X with corresponding oracle
+                for i, (X_new, evaluator, obj_config) in enumerate(
+                    zip(X_list, self.evaluators, self.obj_configs)
+                ):
                     # Evaluate new candidates
                     Y_new = evaluator.evaluate(X_new)
 
@@ -229,14 +224,15 @@ class Engine:
         print(f"Resumed from loop {loop}, continuing with loop {self.current_loop}")
 
     def _get_accumulated_data(self) -> List[tuple]:
-        """Get accumulated data for all objectives from all loops.
+        """Get accumulated data for all oracles from all loops.
 
         Returns:
-            List of (X, Y) tuples, one per objective
+            List of (X, Y) tuples, one per oracle
         """
         accumulated_data = []
 
-        for i in range(self.n_objectives):
+        n_oracles = len(self.evaluators)
+        for i in range(n_oracles):
             # Load all data from loop 0 to current_loop
             X_all = None
             Y_all = None
@@ -279,6 +275,58 @@ class Engine:
             X with shape (n, d)
         """
         return np.random.rand(n, d)
+
+    def _instantiate_algorithm(self) -> BaseAlgorithm:
+        """Instantiate algorithm from config.
+
+        Returns:
+            Instantiated algorithm
+
+        Raises:
+            ValueError: If algorithm config is invalid or class not found
+        """
+        if 'algorithm' not in self.config:
+            raise ValueError("Config must contain 'algorithm' section when algorithm=None")
+
+        algo_config = self.config['algorithm']
+        algo_class_name = algo_config.get('class')
+        algo_params = algo_config.get('params', {})
+
+        if not algo_class_name:
+            raise ValueError("Algorithm config must specify 'class'")
+
+        # Handle built-in algorithms
+        if algo_class_name in ['RandomSampling', 'GreedySampling']:
+            from mpbax.core.algorithm import RandomSampling, GreedySampling
+
+            if algo_class_name == 'RandomSampling':
+                algo_class = RandomSampling
+            else:
+                algo_class = GreedySampling
+
+        # Handle custom algorithms via import path
+        else:
+            # Import custom class from module path
+            # e.g., "mymodule.MyAlgorithm"
+            try:
+                module_path, class_name = algo_class_name.rsplit('.', 1)
+                import importlib
+                module = importlib.import_module(module_path)
+                algo_class = getattr(module, class_name)
+            except (ValueError, ImportError, AttributeError) as e:
+                raise ValueError(
+                    f"Failed to import algorithm class '{algo_class_name}': {e}"
+                )
+
+        # Instantiate algorithm with params
+        try:
+            algorithm = algo_class(**algo_params)
+        except TypeError as e:
+            raise ValueError(
+                f"Failed to instantiate {algo_class_name} with params {algo_params}: {e}"
+            )
+
+        return algorithm
 
     def _print_progress(self) -> None:
         """Print progress information."""

@@ -29,7 +29,7 @@ class BaseModel(ABC):
 
         Args:
             X: Input data with shape (n, d)
-            Y: Output data with shape (n, 1)
+            Y: Output data with shape (n, k) where k >= 1
         """
         pass
 
@@ -43,7 +43,7 @@ class BaseModel(ABC):
             X: Input data with shape (n, d)
 
         Returns:
-            Y: Predicted outputs with shape (n, 1)
+            Y: Predicted outputs with shape (n, k) where k >= 1
         """
         pass
 
@@ -77,6 +77,7 @@ class BaseModel(ABC):
 class DummyModel(BaseModel):
     """Simple model that predicts the mean of training Y values.
 
+    For multi-output Y, computes mean per output dimension independently.
     Useful for testing and as a baseline.
     """
 
@@ -87,17 +88,18 @@ class DummyModel(BaseModel):
             input_dim: Input dimensionality d
         """
         super().__init__(input_dim)
-        self.mean_y = None
+        self.mean_y = None  # Will have shape (k,) for k output dimensions
 
     def train(self, X: np.ndarray, Y: np.ndarray) -> None:
-        """Train by computing mean of Y.
+        """Train by computing mean of Y per output dimension.
 
         Args:
             X: Input data with shape (n, d)
-            Y: Output data with shape (n, 1)
+            Y: Output data with shape (n, k) where k >= 1
         """
         self._validate_data(X, Y)
-        self.mean_y = np.mean(Y)
+        # Compute mean per output dimension, result has shape (k,)
+        self.mean_y = np.mean(Y, axis=0)
         self.is_trained = True
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -107,7 +109,7 @@ class DummyModel(BaseModel):
             X: Input data with shape (n, d)
 
         Returns:
-            Y: Predicted outputs with shape (n, 1), all equal to mean_y
+            Y: Predicted outputs with shape (n, k), all rows equal to mean_y
 
         Raises:
             RuntimeError: If model hasn't been trained yet
@@ -118,7 +120,8 @@ class DummyModel(BaseModel):
         self._validate_input(X)
 
         n = X.shape[0]
-        return np.full((n, 1), self.mean_y)
+        # Broadcast mean_y to (n, k)
+        return np.tile(self.mean_y, (n, 1))
 
     def _validate_data(self, X: np.ndarray, Y: np.ndarray) -> None:
         """Validate training data shapes.
@@ -133,8 +136,8 @@ class DummyModel(BaseModel):
         if X.ndim != 2 or X.shape[1] != self.input_dim:
             raise ValueError(f"X must have shape (n, {self.input_dim}), got {X.shape}")
 
-        if Y.ndim != 2 or Y.shape[1] != 1:
-            raise ValueError(f"Y must have shape (n, 1), got {Y.shape}")
+        if Y.ndim != 2 or Y.shape[1] < 1:
+            raise ValueError(f"Y must have shape (n, k) where k >= 1, got {Y.shape}")
 
         if X.shape[0] != Y.shape[0]:
             raise ValueError(f"X and Y must have same number of samples")

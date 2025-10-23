@@ -20,15 +20,28 @@ checkpoint:
   # Resume from checkpoint (null = start fresh, "latest" = resume from latest, or specify loop number like 5)
   resume_from: null
 
-# Number of candidates to propose each loop
-n_propose: 10
-
-# Objectives configuration
-objectives:
-  - name: "objective_1"
-    # Input dimension for this objective's simulation
+# Oracle configuration (for fn_generate defaults and validation)
+oracles:
+  - name: "oracle_1"
+    # Input dimension for this oracle's simulation
     input_dim: 2
 
-  # Add more objectives for multi-objective optimization
-  # - name: "objective_2"
+  # Add more oracles for multi-oracle optimization
+  # - name: "oracle_2"
   #   input_dim: 3
+
+# Algorithm configuration (auto-instantiation)
+algorithm:
+  # Algorithm class name: "RandomSampling", "GreedySampling", or custom "module.ClassName"
+  class: "GreedySampling"
+
+  # Parameters for algorithm constructor
+  params:
+    # Must match oracle dimensions
+    input_dims: [2]
+
+    # Number of candidates to propose per oracle per loop
+    n_propose: 10
+
+    # Additional params specific to algorithm (e.g., n_candidates for GreedySampling)
+    n_candidates: 1000

@@ -11,7 +11,7 @@ class DataHandler:
 
     Conventions:
     - X has shape (n, d) where n = number of samples, d = dimensionality
-    - Y has shape (n, 1) where n = number of samples
+    - Y has shape (n, k) where n = number of samples, k >= 1 output dimensions
     """
 
     def __init__(self, input_dim: int):
@@ -29,7 +29,7 @@ class DataHandler:
 
         Args:
             X: Input data with shape (n, d)
-            Y: Output data with shape (n, 1)
+            Y: Output data with shape (n, k) where k >= 1
 
         Raises:
             ValueError: If shapes are invalid
@@ -122,10 +122,10 @@ class DataHandler:
 
         # Check Y shape
         if Y.ndim != 2:
-            raise ValueError(f"Y must be 2D array with shape (n, 1), got shape {Y.shape}")
+            raise ValueError(f"Y must be 2D array with shape (n, k), got shape {Y.shape}")
 
-        if Y.shape[1] != 1:
-            raise ValueError(f"Y must have shape (n, 1), got shape {Y.shape}")
+        if Y.shape[1] < 1:
+            raise ValueError(f"Y must have at least 1 output dimension, got shape {Y.shape}")
 
         # Check matching sample sizes
         if X.shape[0] != Y.shape[0]:

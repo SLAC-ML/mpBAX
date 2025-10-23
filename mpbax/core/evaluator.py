@@ -10,7 +10,7 @@ class Evaluator:
     Validates input/output shapes and tracks evaluation counts.
 
     Conventions:
-    - fn_oracle has signature: X (n, d) -> Y (n, 1)
+    - fn_oracle has signature: X (n, d) -> Y (n, k) where k >= 1
     """
 
     def __init__(self, fn_oracle: Callable[[np.ndarray], np.ndarray], input_dim: int, name: str = "objective"):
@@ -33,7 +33,7 @@ class Evaluator:
             X: Input array with shape (n, d)
 
         Returns:
-            Y: Output array with shape (n, 1)
+            Y: Output array with shape (n, k) where k >= 1
 
         Raises:
             ValueError: If input or output shapes are invalid
@@ -95,12 +95,12 @@ class Evaluator:
         """
         if Y.ndim != 2:
             raise ValueError(
-                f"[{self.name}] Output Y must be 2D array with shape (n, 1), got shape {Y.shape}"
+                f"[{self.name}] Output Y must be 2D array with shape (n, k), got shape {Y.shape}"
             )
 
-        if Y.shape[1] != 1:
+        if Y.shape[1] < 1:
             raise ValueError(
-                f"[{self.name}] Output Y must have shape (n, 1), got shape {Y.shape}"
+                f"[{self.name}] Output Y must have at least 1 output dimension, got shape {Y.shape}"
             )
 
         if Y.shape[0] != n_samples:
