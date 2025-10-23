@@ -82,7 +82,7 @@ def main():
 
     # Create and run engine
     engine = Engine(
-        config_path=config_path,
+        config=config,
         fn_oracles=[oracle_multi_output],
         model_class=DummyModel,
         algorithm=None  # Auto-instantiate from config

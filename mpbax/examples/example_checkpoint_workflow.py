@@ -60,7 +60,7 @@ def run_initial():
     algorithm = RandomSampling(input_dims=[2], n_propose=5, seed=42)
 
     engine = Engine(
-        config_path=config_path,
+        config=config,
         fn_oracles=[oracle_sphere],
         model_class=DummyModel,
         algorithm=algorithm
@@ -103,7 +103,7 @@ def run_resume():
     algorithm = RandomSampling(input_dims=[2], n_propose=5, seed=42)
 
     engine = Engine(
-        config_path=config_path,
+        config=config,
         fn_oracles=[oracle_sphere],
         model_class=DummyModel,
         algorithm=algorithm
@@ -154,7 +154,7 @@ def run_rollback():
     algorithm = RandomSampling(input_dims=[2], n_propose=5, seed=999)
 
     engine = Engine(
-        config_path=config_path,
+        config=config,
         fn_oracles=[oracle_sphere],
         model_class=DummyModel,
         algorithm=algorithm

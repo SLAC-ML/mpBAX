@@ -52,13 +52,9 @@ config = {
     }
 }
 
-# Save config
-with open('config.yaml', 'w') as f:
-    yaml.dump(config, f)
-
-# Run optimization (algorithm auto-instantiated from config)
+# Run optimization - pass config dict directly (no need to save to file)
 engine = Engine(
-    config_path='config.yaml',
+    config=config,  # Can be dict or path to YAML file
     fn_oracles=[my_oracle],
     model_class=DummyModel,
     algorithm=None  # Auto-instantiate from config
@@ -92,7 +88,7 @@ config['algorithm'] = {
 
 # Run with multiple oracles
 engine = Engine(
-    config_path='config.yaml',
+    config=config,
     fn_oracles=[oracle_1, oracle_2],
     model_class=DummyModel,
     algorithm=None  # Auto-instantiate from config
@@ -111,9 +107,22 @@ def multi_output_oracle(X: np.ndarray) -> np.ndarray:
     max_vals = np.max(X, axis=1, keepdims=True)
     return np.hstack([sum_squares, sum_vals, max_vals])
 
-# Single oracle with multiple outputs
+# Config for single oracle with multiple outputs
+config = {
+    'seed': 42,
+    'max_loops': 5,
+    'n_initial': 10,
+    'checkpoint': {'dir': 'checkpoints_multi_output', 'freq': 1, 'resume_from': None},
+    'oracles': [{'name': 'multi_output_oracle', 'input_dim': 2}],
+    'algorithm': {
+        'class': 'GreedySampling',
+        'params': {'input_dims': [2], 'n_propose': 5, 'n_candidates': 500}
+    }
+}
+
+# Run optimization
 engine = Engine(
-    config_path='config.yaml',
+    config=config,
     fn_oracles=[multi_output_oracle],
     model_class=DummyModel,
     algorithm=None

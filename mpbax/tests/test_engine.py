@@ -51,7 +51,7 @@ def test_single_objective_run():
 
         # Create and run engine
         engine = Engine(
-            config_path=str(config_path),
+            config=str(config_path),
             fn_oracles=[oracle_sum_squares],
             model_class=DummyModel,
             algorithm=algorithm
@@ -110,7 +110,7 @@ def test_multi_objective_run():
 
         # Create and run engine with 2 oracles
         engine = Engine(
-            config_path=str(config_path),
+            config=str(config_path),
             fn_oracles=[oracle_sum_squares, oracle_sum],
             model_class=DummyModel,
             algorithm=algorithm
@@ -162,7 +162,7 @@ def test_resume_from_checkpoint():
 
         # Run first engine
         engine1 = Engine(
-            config_path=str(config_path),
+            config=str(config_path),
             fn_oracles=[oracle_sum_squares],
             model_class=DummyModel,
             algorithm=algorithm
@@ -183,7 +183,7 @@ def test_resume_from_checkpoint():
         algorithm2 = RandomSampling(input_dims=[2], n_propose=2, seed=42)
 
         engine2 = Engine(
-            config_path=str(config_path),
+            config=str(config_path),
             fn_oracles=[oracle_sum_squares],
             model_class=DummyModel,
             algorithm=algorithm2
@@ -228,7 +228,7 @@ def test_checkpoint_frequency():
         algorithm = RandomSampling(input_dims=[2], n_propose=2, seed=42)
 
         engine = Engine(
-            config_path=str(config_path),
+            config=str(config_path),
             fn_oracles=[oracle_sum_squares],
             model_class=DummyModel,
             algorithm=algorithm

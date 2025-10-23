@@ -3,7 +3,7 @@
 import numpy as np
 import yaml
 from pathlib import Path
-from typing import List, Callable, Optional, Dict
+from typing import List, Callable, Optional, Dict, Union
 
 from mpbax.core.evaluator import Evaluator
 from mpbax.core.data_handler import DataHandler
@@ -25,7 +25,7 @@ class Engine:
 
     def __init__(
         self,
-        config_path: str,
+        config: Union[str, Dict],
         fn_oracles: List[Callable[[np.ndarray], np.ndarray]],
         model_class: type,
         algorithm: Optional[BaseAlgorithm] = None,
@@ -34,7 +34,7 @@ class Engine:
         """Initialize Engine.
 
         Args:
-            config_path: Path to config.yaml file
+            config: Either a dict containing config or a str path to config.yaml file
             fn_oracles: List of oracle functions, one per oracle
             model_class: Class for creating models (must be subclass of BaseModel)
             algorithm: Optional algorithm instance. If None, instantiates from config.
@@ -43,8 +43,13 @@ class Engine:
                         If None, uses uniform random in [0, 1]^d
         """
         # Load config
-        with open(config_path, 'r') as f:
-            self.config = yaml.safe_load(f)
+        if isinstance(config, str):
+            with open(config, 'r') as f:
+                self.config = yaml.safe_load(f)
+        elif isinstance(config, dict):
+            self.config = config
+        else:
+            raise TypeError(f"config must be str or dict, got {type(config)}")
 
         # Set random seed
         self.seed = self.config.get('seed', 42)

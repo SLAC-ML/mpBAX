@@ -94,7 +94,7 @@ def main():
 
     # Create and run engine (algorithm auto-instantiated from config)
     engine = Engine(
-        config_path=config_path,
+        config=config,
         fn_oracles=[oracle_obj1, oracle_obj2],
         model_class=DummyModel,
         algorithm=None  # Auto-instantiate from config
