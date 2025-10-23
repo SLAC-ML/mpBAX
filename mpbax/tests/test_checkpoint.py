@@ -53,9 +53,12 @@ def test_save_and_load():
         assert (checkpoint_dir / "config.yaml").exists()
         assert (checkpoint_dir / "state.pkl").exists()
         assert (checkpoint_dir / "oracle_0" / "data_0.pkl").exists()
-        assert (checkpoint_dir / "oracle_0" / "model_0.pkl").exists()
+        # Check for new or old model naming
+        assert ((checkpoint_dir / "oracle_0" / "model_0_final.pkl").exists() or
+                (checkpoint_dir / "oracle_0" / "model_0.pkl").exists())
         assert (checkpoint_dir / "oracle_1" / "data_0.pkl").exists()
-        assert (checkpoint_dir / "oracle_1" / "model_0.pkl").exists()
+        assert ((checkpoint_dir / "oracle_1" / "model_0_final.pkl").exists() or
+                (checkpoint_dir / "oracle_1" / "model_0.pkl").exists())
 
         # Load checkpoint
         loop, loaded_dhs, loaded_models, loaded_config, loaded_names = manager.load_checkpoint()

@@ -73,6 +73,64 @@ class BaseModel(ABC):
 
         return model
 
+    def get_state(self) -> dict:
+        """Get model state for persistence.
+
+        This method allows models to expose internal state (e.g., normalization
+        parameters, hyperparameters) for inspection, debugging, or manual transfer.
+
+        For finetuning workflows, state persistence happens automatically via:
+        1. Python object reuse (same model instance across loops)
+        2. Pickle serialization (checkpoint save/load)
+
+        This method is optional and useful for:
+        - Inspecting normalization params (e.g., X_mu, X_sigma)
+        - Debugging model state
+        - Manual state transfer between models
+        - Non-pickle serialization formats
+
+        Returns:
+            Dictionary containing model state. Default: empty dict.
+
+        Example:
+            >>> state = model.get_state()
+            >>> print(state)
+            {'X_mu': array([0.5, 0.3]), 'X_sigma': array([0.2, 0.1])}
+        """
+        return {}
+
+    def set_state(self, state_dict: dict) -> None:
+        """Restore model state from dictionary.
+
+        Args:
+            state_dict: Dictionary containing model state
+
+        Example:
+            >>> state = {'X_mu': np.array([0.5, 0.3])}
+            >>> model.set_state(state)
+        """
+        pass
+
+    def get_best_model_snapshot(self) -> 'BaseModel':
+        """Get best model snapshot from training.
+
+        Some models track the "best" model during training (e.g., based on
+        validation loss, early stopping). This method allows retrieving that
+        snapshot for checkpointing.
+
+        Used by checkpoint_mode='best' or 'both' in config.
+
+        Returns:
+            Best model instance if tracked, otherwise None.
+
+        Example:
+            >>> model.train(X, Y)  # Training tracks best model internally
+            >>> best = model.get_best_model_snapshot()
+            >>> if best:
+            >>>     best.save('model_best.pkl')
+        """
+        return None
+
 
 class DummyModel(BaseModel):
     """Simple model that predicts the mean of training Y values.
@@ -122,6 +180,34 @@ class DummyModel(BaseModel):
         n = X.shape[0]
         # Broadcast mean_y to (n, k)
         return np.tile(self.mean_y, (n, 1))
+
+    def get_state(self) -> dict:
+        """Get DummyModel state.
+
+        Returns:
+            Dictionary with mean_y if trained, empty dict otherwise
+        """
+        if self.is_trained:
+            return {'mean_y': self.mean_y}
+        return {}
+
+    def set_state(self, state_dict: dict) -> None:
+        """Restore DummyModel state.
+
+        Args:
+            state_dict: Dictionary containing 'mean_y'
+        """
+        if 'mean_y' in state_dict:
+            self.mean_y = state_dict['mean_y']
+            self.is_trained = True
+
+    def get_best_model_snapshot(self) -> 'BaseModel':
+        """DummyModel doesn't track best model.
+
+        Returns:
+            None (not applicable for DummyModel)
+        """
+        return None
 
     def _validate_data(self, X: np.ndarray, Y: np.ndarray) -> None:
         """Validate training data shapes.

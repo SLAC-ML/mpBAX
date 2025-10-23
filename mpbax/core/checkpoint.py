@@ -72,6 +72,9 @@ class CheckpointManager:
         with open(state_path, 'wb') as f:
             pickle.dump(state, f)
 
+        # Get checkpoint mode from config
+        checkpoint_mode = config.get('model', {}).get('checkpoint_mode', 'final')
+
         # Save data and models for each oracle
         for i, (data_handler, model, oracle_name) in enumerate(zip(data_handlers, models, oracle_names)):
             oracle_dir = self.checkpoint_dir / f"oracle_{i}"
@@ -81,9 +84,18 @@ class CheckpointManager:
             data_path = oracle_dir / f"data_{loop}.pkl"
             data_handler.save(str(data_path))
 
-            # Save model_loop
-            model_path = oracle_dir / f"model_{loop}.pkl"
-            model.save(str(model_path))
+            # Save models based on checkpoint_mode
+            if checkpoint_mode in ['final', 'both']:
+                # Save final model (used for resumption)
+                model_path = oracle_dir / f"model_{loop}_final.pkl"
+                model.save(str(model_path))
+
+            if checkpoint_mode in ['best', 'both']:
+                # Save best model if available
+                best_model = model.get_best_model_snapshot()
+                if best_model is not None:
+                    best_model_path = oracle_dir / f"model_{loop}_best.pkl"
+                    best_model.save(str(best_model_path))
 
     def get_latest_loop(self) -> Optional[int]:
         """Get the latest completed loop number.
@@ -165,11 +177,17 @@ class CheckpointManager:
             data_handlers.append(data_handler_combined)
 
             # Load model for this loop
-            model_path = oracle_dir / f"model_{loop}.pkl"
-            if not model_path.exists():
-                raise ValueError(f"Model file {model_path} not found")
+            # Try new format first (model_loop_final.pkl), fallback to old (model_loop.pkl)
+            model_path_final = oracle_dir / f"model_{loop}_final.pkl"
+            model_path_old = oracle_dir / f"model_{loop}.pkl"
 
-            model = BaseModel.load(str(model_path))
+            if model_path_final.exists():
+                model = BaseModel.load(str(model_path_final))
+            elif model_path_old.exists():
+                model = BaseModel.load(str(model_path_old))
+            else:
+                raise ValueError(f"Model file not found: {model_path_final} or {model_path_old}")
+
             models.append(model)
 
         return loop, data_handlers, models, config, oracle_names

@@ -20,6 +20,20 @@ checkpoint:
   # Resume from checkpoint (null = start fresh, "latest" = resume from latest, or specify loop number like 5)
   resume_from: null
 
+# Model training settings
+model:
+  # Training mode: "retrain" (train from scratch each loop) or "finetune" (continue from previous model)
+  # - retrain: Creates new model each loop, trains on all accumulated data
+  # - finetune: Reuses model from previous loop, continues training
+  #   (useful for neural networks, preserves normalization params, etc.)
+  mode: "retrain"
+
+  # Checkpoint mode: which model to save
+  # - "final": Save model after training completes (used for resumption)
+  # - "best": Save best model from training (if model tracks it via get_best_model_snapshot())
+  # - "both": Save both final and best models
+  checkpoint_mode: "final"
+
 # Oracle configuration (for fn_generate defaults and validation)
 oracles:
   - name: "oracle_1"

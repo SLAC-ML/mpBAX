@@ -64,7 +64,9 @@ def test_single_oracle_run():
         assert checkpoint_dir.exists()
         assert (checkpoint_dir / 'config.yaml').exists()
         assert (checkpoint_dir / 'oracle_0' / 'data_0.pkl').exists()
-        assert (checkpoint_dir / 'oracle_0' / 'model_0.pkl').exists()
+        # Check for new naming (model_0_final.pkl) or old (model_0.pkl) for backward compat
+        assert ((checkpoint_dir / 'oracle_0' / 'model_0_final.pkl').exists() or
+                (checkpoint_dir / 'oracle_0' / 'model_0.pkl').exists())
 
         # Verify all loops completed
         loops = engine.checkpoint_manager.list_checkpoints()
@@ -122,7 +124,9 @@ def test_multi_oracle_run():
         checkpoint_dir = Path(config['checkpoint']['dir'])
         for oracle_idx in [0, 1]:
             assert (checkpoint_dir / f'oracle_{oracle_idx}' / 'data_0.pkl').exists()
-            assert (checkpoint_dir / f'oracle_{oracle_idx}' / 'model_0.pkl').exists()
+            # Check for new or old naming
+            assert ((checkpoint_dir / f'oracle_{oracle_idx}' / 'model_0_final.pkl').exists() or
+                    (checkpoint_dir / f'oracle_{oracle_idx}' / 'model_0.pkl').exists())
 
         # Verify evaluation counts
         # Each oracle: Loop 0: 4 initial, Loop 1: 2 proposed = 6 total

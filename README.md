@@ -130,6 +130,51 @@ engine = Engine(
 engine.run()
 ```
 
+## Model Training Modes
+
+### Finetuning vs. Retraining
+
+mpBAX supports two model training modes:
+
+**Retrain Mode (Default)**
+```python
+config['model'] = {
+    'mode': 'retrain',  # Train from scratch each loop
+    'checkpoint_mode': 'final'
+}
+```
+- Creates new model instance every loop
+- Trains on all accumulated data from scratch
+- Simple and suitable for most models
+
+**Finetune Mode**
+```python
+config['model'] = {
+    'mode': 'finetune',  # Continue from previous model
+    'checkpoint_mode': 'both'  # Save both best and final
+}
+```
+- Reuses model from previous loop
+- Continues training without resetting
+- Preserves normalization params (e.g., initial X_mu, X_sigma)
+- Ideal for neural networks and incremental learning
+
+### Model with Normalization Example
+
+```python
+class ModelWithNormalization(BaseModel):
+    def train(self, X, Y):
+        # Compute normalization ONLY on first call
+        if self.X_mu is None:
+            self.X_mu = np.mean(X, axis=0, keepdims=True)
+            self.X_sigma = np.std(X, axis=0, keepdims=True) + 1e-8
+        # Use initial normalization for all subsequent calls
+        X_norm = (X - self.X_mu) / self.X_sigma
+        # ... train model ...
+```
+
+See `examples/example_model_with_normalization.py` for full implementation.
+
 ## Checkpointing Features
 
 ### Resume from Latest Checkpoint
@@ -172,6 +217,7 @@ mpBAX/
 │   │   ├── example_single_objective.py
 │   │   ├── example_multi_objective.py
 │   │   ├── example_multi_output.py
+│   │   ├── example_model_with_normalization.py
 │   │   └── example_checkpoint_workflow.py
 │   ├── tests/          # Unit tests
 │   │   ├── test_data_handler.py
@@ -192,6 +238,9 @@ PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_multi_object
 
 # Multi-output oracle example
 PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_multi_output.py
+
+# Model with normalization and finetuning
+PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_model_with_normalization.py
 
 # Checkpoint workflow demo
 PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_checkpoint_workflow.py
@@ -265,6 +314,15 @@ algorithm:
     input_dims: [2]         # List of input dimensions (one per oracle)
     n_propose: 10           # Number of candidates to propose per loop
     n_candidates: 1000      # Number of candidate points to evaluate
+
+model:
+  mode: "retrain"           # "retrain" (default) or "finetune"
+                            # retrain: Create new model each loop
+                            # finetune: Continue from previous model (preserves state)
+  checkpoint_mode: "final"  # "final" (default), "best", or "both"
+                            # final: Save model after training
+                            # best: Save best model if tracked
+                            # both: Save both final and best
 ```
 
 ## Extending the Framework

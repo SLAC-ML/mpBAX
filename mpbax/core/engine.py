@@ -144,13 +144,21 @@ class Engine:
 
             # Step 4: Train models
             print("Training models...")
+            model_mode = self.config.get('model', {}).get('mode', 'retrain')
+
             for i, oracle_config in enumerate(self.oracle_configs):
                 X_train, Y_train = accumulated_data[i]
 
-                # Create new model for this loop
-                model = self.model_class(input_dim=oracle_config['input_dim'])
-                model.train(X_train, Y_train)
-                self.models[i] = model
+                # Check training mode
+                if model_mode == 'finetune' and self.current_loop > 0:
+                    # Finetuning: continue from previous model
+                    model = self.models[i]  # Reuse existing model instance
+                    model.train(X_train, Y_train)
+                else:
+                    # Retraining: create new model from scratch (default)
+                    model = self.model_class(input_dim=oracle_config['input_dim'])
+                    model.train(X_train, Y_train)
+                    self.models[i] = model
 
             # Step 5: Save checkpoint
             if self.current_loop % checkpoint_freq == 0:
