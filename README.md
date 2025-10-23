@@ -218,7 +218,11 @@ mpBAX/
 │   │   ├── example_multi_objective.py
 │   │   ├── example_multi_output.py
 │   │   ├── example_model_with_normalization.py
+│   │   ├── example_da_net_optimization.py
 │   │   └── example_checkpoint_workflow.py
+│   ├── plugins/        # Model and algorithm plugins
+│   │   └── models/
+│   │       └── da_net_model.py  # PyTorch neural network plugin
 │   ├── tests/          # Unit tests
 │   │   ├── test_data_handler.py
 │   │   ├── test_interfaces.py
@@ -241,6 +245,9 @@ PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_multi_output
 
 # Model with normalization and finetuning
 PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_model_with_normalization.py
+
+# DA_Net plugin (PyTorch neural network)
+PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_da_net_optimization.py
 
 # Checkpoint workflow demo
 PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_checkpoint_workflow.py
@@ -385,6 +392,99 @@ class MyAlgorithm(BaseAlgorithm):
         return X_list
 ```
 
+## Model Plugins
+
+mpBAX includes a plugin system for pre-built model implementations. Plugins provide production-ready models with optimized architectures and training procedures.
+
+### DA_Net Plugin (PyTorch Neural Network)
+
+The DA_Net plugin provides a deep neural network for multi-output regression with advanced features:
+
+**Features:**
+- 7-layer fully connected architecture with 800 neurons per layer
+- Automatic input normalization (preserved in finetune mode)
+- Early stopping with best model tracking
+- GPU acceleration when available
+- Multiple forward modes (fc, split, sine)
+- Dropout and batch normalization
+
+**Installation:**
+```bash
+pip install torch scikit-learn
+```
+
+**Usage:**
+```python
+from mpbax.core.engine import Engine
+from mpbax.plugins.models import DANetModel
+
+# Oracle function
+def my_oracle(X):
+    return np.sum(X**2, axis=1, keepdims=True)
+
+# Config with DA_Net model
+config = {
+    'seed': 42,
+    'max_loops': 5,
+    'n_initial': 20,
+    'checkpoint': {'dir': 'checkpoints_danet', 'freq': 1, 'resume_from': None},
+    'oracles': [{'name': 'my_obj', 'input_dim': 2}],
+    'model': {
+        'mode': 'finetune',  # Preserve normalization across loops
+        'checkpoint_mode': 'both'  # Save best and final models
+    },
+    'algorithm': {
+        'class': 'GreedySampling',
+        'params': {'input_dims': [2], 'n_propose': 10, 'n_candidates': 500}
+    }
+}
+
+# Run optimization
+engine = Engine(
+    config=config,
+    fn_oracles=[my_oracle],
+    model_class=DANetModel,  # Use DA_Net plugin
+    algorithm=None
+)
+engine.run()
+```
+
+**Hyperparameters:**
+
+You can customize DA_Net by passing parameters to the model constructor:
+
+```python
+from mpbax.plugins.models import DANetModel
+
+# Custom DA_Net configuration
+model_class = lambda input_dim: DANetModel(
+    input_dim=input_dim,
+    n_neur=800,           # Neurons per hidden layer
+    dropout=0.1,          # Dropout probability
+    lr=1e-4,              # Learning rate
+    epochs=150,           # Training epochs
+    model_type='split',   # Forward mode: 'fc', 'split', 'sine'
+    test_ratio=0.05,      # Train/test split ratio
+    batch_size=1000,      # Training batch size
+    early_stop_patience=10,  # Early stopping patience
+    device=None           # 'cuda', 'cpu', or None for auto
+)
+
+engine = Engine(
+    config=config,
+    fn_oracles=[my_oracle],
+    model_class=model_class,
+    algorithm=None
+)
+```
+
+**Forward Modes:**
+- `'fc'`: Standard fully connected (all features processed equally)
+- `'split'`: Concatenates last 2 input features before final layer (useful for spatial coordinates)
+- `'sine'`: Uses sine activation instead of ReLU (experimental)
+
+**See also:** `mpbax/examples/example_da_net_optimization.py` for complete example
+
 ## Design Principles
 
 - **Simplicity First**: No databases, no async, no over-engineering
@@ -395,9 +495,14 @@ class MyAlgorithm(BaseAlgorithm):
 
 ## Dependencies
 
+**Core Dependencies:**
 - Python 3.7+
 - NumPy
 - PyYAML
+
+**Optional Dependencies:**
+- PyTorch (for DA_Net plugin)
+- scikit-learn (for DA_Net plugin's train/test split)
 
 ## License
 
