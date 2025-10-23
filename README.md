@@ -2,7 +2,12 @@
 
 A lightweight framework for model-based multi-objective optimization with built-in checkpointing and reproducibility.
 
+> **⚠️ v2.0 Release**: This version introduces a **config-first architecture** with breaking API changes. Everything (oracle functions, models, generators) is now specified in config. See [Migration Guide](#migrating-from-v1x) below.
+
 ## Features
+
+- **Config-First Design** (NEW in v2.0): Entire experiment specified in config file
+- **Per-Oracle Flexibility** (NEW): Each oracle can have different n_initial, models, generators
 
 - **Simple & Robust**: Minimal dependencies, straightforward architecture
 - **Multi-Oracle Support**: Optimize multiple independent oracles with different input dimensions
@@ -127,7 +132,9 @@ engine.run()
 ### Multi-Output Oracle
 
 ```python
-# Oracle that returns multiple outputs per evaluation
+# myproject/oracles.py
+import numpy as np
+
 def multi_output_oracle(X: np.ndarray) -> np.ndarray:
     """Returns Y with shape (n, 3) - three outputs per input"""
     sum_squares = np.sum(X**2, axis=1, keepdims=True)
@@ -135,26 +142,36 @@ def multi_output_oracle(X: np.ndarray) -> np.ndarray:
     max_vals = np.max(X, axis=1, keepdims=True)
     return np.hstack([sum_squares, sum_vals, max_vals])
 
+# myproject/run.py
+from mpbax.core.engine import Engine
+
 # Config for single oracle with multiple outputs
 config = {
     'seed': 42,
     'max_loops': 5,
-    'n_initial': 10,
     'checkpoint': {'dir': 'checkpoints_multi_output', 'freq': 1, 'resume_from': None},
-    'oracles': [{'name': 'multi_output_oracle', 'input_dim': 2}],
+    'oracles': [
+        {
+            'name': 'multi_output_oracle',
+            'input_dim': 2,
+            'n_initial': 10,
+            'function': {
+                'class': 'myproject.oracles.multi_output_oracle'
+            },
+            'model': {
+                'class': 'DummyModel',
+                'params': {}
+            }
+        }
+    ],
     'algorithm': {
         'class': 'GreedySampling',
         'params': {'input_dims': [2], 'n_propose': 5, 'n_candidates': 500}
     }
 }
 
-# Run optimization
-engine = Engine(
-    config=config,
-    fn_oracles=[multi_output_oracle],
-    model_class=DummyModel,
-    algorithm=None
-)
+# NEW API: Engine takes only config
+engine = Engine(config)
 engine.run()
 ```
 
@@ -191,7 +208,7 @@ config['model'] = {
 
 ```python
 class ModelWithNormalization(BaseModel):
-    def train(self, X, Y):
+    def train(self, X, Y, metadata=None):
         # Compute normalization ONLY on first call
         if self.X_mu is None:
             self.X_mu = np.mean(X, axis=0, keepdims=True)
@@ -201,7 +218,7 @@ class ModelWithNormalization(BaseModel):
         # ... train model ...
 ```
 
-See `examples/example_model_with_normalization.py` for full implementation.
+**Note:** The DANetModel plugin automatically implements this pattern. See DA_Net Plugin section for details.
 
 ## Checkpointing Features
 
@@ -357,28 +374,20 @@ The algorithm's `propose()` method receives all predict functions and returns a 
 
 ## Configuration Options
 
+**v2.0 Complete Configuration Structure:**
+
 ```yaml
+# Run settings
 seed: 42                    # Random seed for reproducibility
 max_loops: 10               # Maximum number of optimization loops
-n_initial: 20               # Number of initial samples
 
+# Checkpointing
 checkpoint:
   dir: "checkpoints"        # Checkpoint directory
   freq: 1                   # Checkpoint every N loops
-  resume_from: null         # null, "latest", or loop number
+  resume_from: null         # null, "latest", or specific loop number
 
-oracles:
-  - name: "oracle_1"        # Oracle name
-    input_dim: 2            # Input dimensionality
-  # Add more oracles for multi-oracle optimization
-
-algorithm:
-  class: "GreedySampling"   # Algorithm class name (built-in or custom)
-  params:                   # Algorithm-specific parameters
-    input_dims: [2]         # List of input dimensions (one per oracle)
-    n_propose: 10           # Number of candidates to propose per loop
-    n_candidates: 1000      # Number of candidate points to evaluate
-
+# Model training settings (global)
 model:
   mode: "retrain"           # "retrain" (default) or "finetune"
                             # retrain: Create new model each loop
@@ -387,26 +396,109 @@ model:
                             # final: Save model after training
                             # best: Save best model if tracked
                             # both: Save both final and best
+
+# Algorithm configuration
+algorithm:
+  class: "GreedySampling"   # Algorithm class name (built-in or full import path)
+  params:                   # Algorithm-specific parameters
+    input_dims: [2, 3]      # List of input dimensions (one per oracle)
+    n_propose: 10           # Number of candidates to propose per loop
+    n_candidates: 1000      # Number of candidate points to evaluate
+
+# Oracle configurations (list) - NEW in v2.0!
+oracles:
+  - name: "objective_1"     # Oracle name (used for checkpoint directories)
+    input_dim: 2            # Input dimensionality for this oracle
+    n_initial: 20           # Number of initial samples for this oracle
+
+    # Oracle function (required)
+    function:
+      class: "myproject.oracles.oracle_1"  # Import path to function
+      params: {}            # Optional: parameters for factory functions
+
+    # Initial data generator (optional)
+    generate: null          # null = use default uniform [0,1]^d
+    # OR custom generator:
+    # generate:
+    #   class: "myproject.generators.lhs_generator"
+    #   params:
+    #     criterion: "maximin"
+
+    # Model configuration (required)
+    model:
+      class: "DummyModel"   # Model class (built-in or full import path)
+      params: {}            # Model-specific hyperparameters
+
+  # Add more oracles for multi-oracle optimization
+  - name: "objective_2"
+    input_dim: 3            # Different dimension!
+    n_initial: 30           # Different initial samples!
+    function:
+      class: "myproject.oracles.oracle_2"
+    model:
+      class: "DANetModel"   # Different model!
+      params:
+        epochs: 150
+        epochs_iter: 10
+        weight_new_data: 10.0
 ```
+
+**Key v2.0 Changes:**
+- `n_initial` moved to per-oracle configuration (different oracles can have different amounts)
+- `function` section specifies oracle function import path (required)
+- `generate` section allows per-oracle custom generators (optional)
+- `model` section allows per-oracle model configuration with hyperparameters (required)
 
 ## Extending the Framework
 
 ### Custom Model
 
 ```python
+# myproject/models.py
+import numpy as np
 from mpbax.core.model import BaseModel
 
 class MyModel(BaseModel):
-    def train(self, X: np.ndarray, Y: np.ndarray) -> None:
+    def train(self, X: np.ndarray, Y: np.ndarray, metadata: dict = None) -> None:
+        """Train the model.
+
+        Args:
+            X: Input data, shape (n, d)
+            Y: Output data, shape (n, k) where k >= 1
+            metadata: Optional dict with additional data information
+                - 'loop_indices': Array indicating which loop each sample came from
+        """
         # Your training logic
-        # X shape: (n, d), Y shape: (n, k) where k >= 1
+        # Can use metadata['loop_indices'] for sample weighting if desired
         pass
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predict outputs.
+
+        Args:
+            X: Input data, shape (n, d)
+
+        Returns:
+            Y: Predictions, shape (n, k) matching oracle output dimensions
+        """
         # Your prediction logic
-        # Input: X shape (n, d)
-        # Returns: Y shape (n, k) matching oracle output dimensions
         pass
+```
+
+**Using custom model in config:**
+
+```yaml
+oracles:
+  - name: "my_objective"
+    input_dim: 4
+    n_initial: 20
+    function:
+      class: "myproject.oracles.my_oracle"
+    model:
+      class: "myproject.models.MyModel"  # Full import path
+      params:
+        my_param1: 100
+        my_param2: 0.01
 ```
 
 ### Custom Algorithm
@@ -569,6 +661,103 @@ This emphasizes recent observations in the loss function, similar to importance 
 Set `weight_new_data=1.0` to disable weighting and treat all data equally.
 
 **See also:** `mpbax/examples/example_da_net_optimization.py` for complete example
+
+## Migrating from v1.x
+
+v2.0 introduces a **config-first architecture**. Here's how to migrate:
+
+### OLD v1.x Code
+
+```python
+from mpbax.core.engine import Engine
+from mpbax.core.model import DummyModel
+
+def my_oracle(X):
+    return np.sum(X**2, axis=1, keepdims=True)
+
+config = {
+    'seed': 42,
+    'max_loops': 10,
+    'n_initial': 20,
+    'checkpoint': {'dir': 'checkpoints', 'freq': 1},
+    'oracles': [{'name': 'my_obj', 'input_dim': 2}],
+    'algorithm': {
+        'class': 'GreedySampling',
+        'params': {'input_dims': [2], 'n_propose': 10, 'n_candidates': 1000}
+    }
+}
+
+# OLD API
+engine = Engine(
+    config=config,
+    fn_oracles=[my_oracle],
+    model_class=DummyModel,
+    algorithm=None
+)
+engine.run()
+```
+
+### NEW v2.0 Code
+
+**Step 1:** Move oracle function to importable module
+
+```python
+# myproject/oracles.py
+import numpy as np
+
+def my_oracle(X):
+    return np.sum(X**2, axis=1, keepdims=True)
+```
+
+**Step 2:** Update config structure
+
+```python
+# myproject/run.py
+from mpbax.core.engine import Engine
+
+config = {
+    'seed': 42,
+    'max_loops': 10,
+    'checkpoint': {'dir': 'checkpoints', 'freq': 1},
+    'oracles': [
+        {
+            'name': 'my_obj',
+            'input_dim': 2,
+            'n_initial': 20,  # Moved here!
+            'function': {      # NEW!
+                'class': 'myproject.oracles.my_oracle'
+            },
+            'model': {         # NEW!
+                'class': 'DummyModel',
+                'params': {}
+            }
+        }
+    ],
+    'algorithm': {
+        'class': 'GreedySampling',
+        'params': {'input_dims': [2], 'n_propose': 10, 'n_candidates': 1000}
+    }
+}
+
+# NEW API - much simpler!
+engine = Engine(config)
+engine.run()
+```
+
+### Key Changes
+
+1. **Oracle functions**: Must be in importable modules (not inline)
+2. **n_initial**: Moved from top-level to per-oracle config
+3. **function**: New required field specifying import path
+4. **model**: New required field with class and params per oracle
+5. **Engine API**: Now takes only `config` parameter
+
+### Benefits
+
+- ✅ Fully reproducible from config file
+- ✅ Per-oracle flexibility (different n_initial, models, generators)
+- ✅ Cleaner API: `Engine(config)` - that's it!
+- ✅ Ready for CLI: `mpbax run config.yaml` (future feature)
 
 ## Design Principles
 
