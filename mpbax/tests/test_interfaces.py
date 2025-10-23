@@ -23,6 +23,23 @@ def simple_oracle(X: np.ndarray) -> np.ndarray:
     return Y
 
 
+def multi_output_oracle(X: np.ndarray) -> np.ndarray:
+    """Oracle with multiple outputs.
+
+    Args:
+        X: Input with shape (n, d)
+
+    Returns:
+        Y: Output with shape (n, 3)
+    """
+    Y = np.hstack([
+        np.sum(X**2, axis=1, keepdims=True),   # sum of squares
+        np.sum(X, axis=1, keepdims=True),      # sum
+        np.ones((X.shape[0], 1))               # constant
+    ])
+    return Y
+
+
 def test_evaluator():
     """Test Evaluator wrapper."""
     print("Testing Evaluator...")
@@ -52,9 +69,25 @@ def test_evaluator():
         assert False, "Should have raised ValueError"
     except ValueError as e:
         assert "dimension mismatch" in str(e)
-        print(f"Correctly caught error: {e}")
+        print(f"  Correctly caught error: {e}")
 
-    print("Evaluator tests passed!\n")
+    print("  Evaluator (single-output) tests passed!")
+
+
+def test_evaluator_multi_output():
+    """Test Evaluator with multi-output oracle."""
+    print("  Testing Evaluator with multi-output...")
+
+    evaluator = Evaluator(fn_oracle=multi_output_oracle, input_dim=2, name="multi_out")
+
+    X = np.array([[1.0, 2.0], [3.0, 4.0]])
+    Y = evaluator.evaluate(X)
+
+    # Should accept multi-output Y
+    assert Y.shape == (2, 3)
+    assert evaluator.get_eval_count() == 2
+
+    print("  Evaluator (multi-output) tests passed!\n")
 
 
 def test_model():
@@ -88,46 +121,88 @@ def test_model():
         Y_pred_loaded = loaded_model.predict(X_test)
         np.testing.assert_array_equal(Y_pred, Y_pred_loaded)
 
-    print("Model tests passed!\n")
+    print("  Model (single-output) tests passed!")
+
+
+def test_model_multi_output():
+    """Test Model with multi-output data."""
+    print("  Testing Model with multi-output...")
+
+    model = DummyModel(input_dim=2)
+
+    # Multi-output training data
+    X_train = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+    Y_train = np.array([[10.0, 1.0, 0.5], [20.0, 2.0, 0.6], [30.0, 3.0, 0.7]])
+
+    # Train model
+    model.train(X_train, Y_train)
+    assert model.is_trained
+
+    # Test prediction
+    X_test = np.array([[0.0, 0.0], [1.0, 1.0]])
+    Y_pred = model.predict(X_test)
+
+    assert Y_pred.shape == (2, 3)
+    # Mean per column: [20.0, 2.0, 0.6]
+    expected_mean = np.array([20.0, 2.0, 0.6])
+    np.testing.assert_array_almost_equal(Y_pred[0], expected_mean)
+    np.testing.assert_array_almost_equal(Y_pred[1], expected_mean)
+
+    print("  Model (multi-output) tests passed!\n")
 
 
 def test_algorithm():
     """Test Algorithm interface with RandomSampling and GreedySampling."""
     print("Testing Algorithm...")
 
-    # Test RandomSampling
-    print("  Testing RandomSampling...")
-    random_algo = RandomSampling(n_propose=5, input_dim=3, seed=42)
+    # Test RandomSampling with single oracle
+    print("  Testing RandomSampling (single oracle)...")
+    random_algo = RandomSampling(input_dims=[3], n_propose=5, seed=42)
 
     # Create dummy predict function
     def dummy_pred(X):
         return np.sum(X, axis=1, keepdims=True)
 
-    X_proposed = random_algo.propose([dummy_pred])
-    assert X_proposed.shape == (5, 3)
-    assert np.all(X_proposed >= 0) and np.all(X_proposed <= 1)
+    X_list = random_algo.propose([dummy_pred])
+    assert len(X_list) == 1
+    assert X_list[0].shape == (5, 3)
+    assert np.all(X_list[0] >= 0) and np.all(X_list[0] <= 1)
 
     # Test reproducibility
-    random_algo2 = RandomSampling(n_propose=5, input_dim=3, seed=42)
-    X_proposed2 = random_algo2.propose([dummy_pred])
-    np.testing.assert_array_equal(X_proposed, X_proposed2)
+    random_algo2 = RandomSampling(input_dims=[3], n_propose=5, seed=42)
+    X_list2 = random_algo2.propose([dummy_pred])
+    np.testing.assert_array_equal(X_list[0], X_list2[0])
+
+    # Test RandomSampling with multiple oracles (different dimensions)
+    print("  Testing RandomSampling (multi-oracle)...")
+    random_algo_multi = RandomSampling(input_dims=[2, 3, 4], n_propose=5, seed=42)
+
+    def pred1(X): return np.sum(X, axis=1, keepdims=True)
+    def pred2(X): return np.sum(X**2, axis=1, keepdims=True)
+    def pred3(X): return np.mean(X, axis=1, keepdims=True)
+
+    X_list_multi = random_algo_multi.propose([pred1, pred2, pred3])
+    assert len(X_list_multi) == 3
+    assert X_list_multi[0].shape == (5, 2)
+    assert X_list_multi[1].shape == (5, 3)
+    assert X_list_multi[2].shape == (5, 4)
 
     # Test GreedySampling
     print("  Testing GreedySampling...")
-    greedy_algo = GreedySampling(n_propose=3, input_dim=2, seed=42, n_candidates=100)
+    greedy_algo = GreedySampling(input_dims=[2], n_propose=3, seed=42, n_candidates=100)
 
     # Predict function that prefers low values
     def pred_minimize(X):
         return np.sum(X**2, axis=1, keepdims=True)
 
-    X_greedy = greedy_algo.propose([pred_minimize])
-    assert X_greedy.shape == (3, 2)
+    X_list_greedy = greedy_algo.propose([pred_minimize])
+    assert len(X_list_greedy) == 1
+    assert X_list_greedy[0].shape == (3, 2)
 
     # Verify greedy selection works by comparing to average random samples
-    # Greedy should select points with lower predicted values than random
     random_samples = np.random.rand(100, 2)
     random_vals = pred_minimize(random_samples)
-    greedy_vals = pred_minimize(X_greedy)
+    greedy_vals = pred_minimize(X_list_greedy[0])
 
     assert np.mean(greedy_vals) < np.mean(random_vals), \
         "Greedy should select points with better (lower) predicted values than random"
@@ -142,7 +217,7 @@ def test_integration():
     # Setup
     evaluator = Evaluator(fn_oracle=simple_oracle, input_dim=2, name="test")
     model = DummyModel(input_dim=2)
-    algorithm = RandomSampling(n_propose=3, input_dim=2, seed=42)
+    algorithm = RandomSampling(input_dims=[2], n_propose=3, seed=42)
 
     # Step 1: Generate initial data
     X0 = np.array([[0.5, 0.5], [1.0, 1.0]])
@@ -155,7 +230,9 @@ def test_integration():
     model.train(X0, Y0)
 
     # Step 4: Propose new candidates using model's predict function
-    X_next = algorithm.propose([model.predict])
+    X_list = algorithm.propose([model.predict])
+    assert len(X_list) == 1
+    X_next = X_list[0]
     assert X_next.shape == (3, 2)
 
     # Step 5: Evaluate new candidates
@@ -170,7 +247,9 @@ def test_integration():
 
 if __name__ == "__main__":
     test_evaluator()
+    test_evaluator_multi_output()
     test_model()
+    test_model_multi_output()
     test_algorithm()
     test_integration()
     print("All interface tests passed!")

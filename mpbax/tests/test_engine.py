@@ -37,8 +37,7 @@ def test_single_objective_run():
                 'freq': 1,
                 'resume_from': None
             },
-            'n_propose': 3,
-            'objectives': [
+            'oracles': [
                 {'name': 'obj_1', 'input_dim': 2}
             ]
         }
@@ -48,7 +47,7 @@ def test_single_objective_run():
             yaml.dump(config, f)
 
         # Create algorithm
-        algorithm = RandomSampling(n_propose=3, input_dim=2, seed=42)
+        algorithm = RandomSampling(input_dims=[2], n_propose=3, seed=42)
 
         # Create and run engine
         engine = Engine(
@@ -96,8 +95,7 @@ def test_multi_objective_run():
                 'freq': 1,
                 'resume_from': None
             },
-            'n_propose': 2,
-            'objectives': [
+            'oracles': [
                 {'name': 'objective_1', 'input_dim': 2},
                 {'name': 'objective_2', 'input_dim': 3}
             ]
@@ -107,10 +105,10 @@ def test_multi_objective_run():
         with open(config_path, 'w') as f:
             yaml.dump(config, f)
 
-        # Create algorithm (note: will use first objective's dim)
-        algorithm = RandomSampling(n_propose=2, input_dim=2, seed=42)
+        # Create algorithm with dimensions for both oracles
+        algorithm = RandomSampling(input_dims=[2, 3], n_propose=2, seed=42)
 
-        # Create and run engine with 2 objectives
+        # Create and run engine with 2 oracles
         engine = Engine(
             config_path=str(config_path),
             fn_oracles=[oracle_sum_squares, oracle_sum],
@@ -151,8 +149,7 @@ def test_resume_from_checkpoint():
                 'freq': 1,
                 'resume_from': None
             },
-            'n_propose': 2,
-            'objectives': [
+            'oracles': [
                 {'name': 'obj_1', 'input_dim': 2}
             ]
         }
@@ -161,7 +158,7 @@ def test_resume_from_checkpoint():
         with open(config_path, 'w') as f:
             yaml.dump(config, f)
 
-        algorithm = RandomSampling(n_propose=2, input_dim=2, seed=42)
+        algorithm = RandomSampling(input_dims=[2], n_propose=2, seed=42)
 
         # Run first engine
         engine1 = Engine(
@@ -183,7 +180,7 @@ def test_resume_from_checkpoint():
         with open(config_path, 'w') as f:
             yaml.dump(config, f)
 
-        algorithm2 = RandomSampling(n_propose=2, input_dim=2, seed=42)
+        algorithm2 = RandomSampling(input_dims=[2], n_propose=2, seed=42)
 
         engine2 = Engine(
             config_path=str(config_path),
@@ -219,8 +216,7 @@ def test_checkpoint_frequency():
                 'freq': 2,  # Checkpoint every 2 loops
                 'resume_from': None
             },
-            'n_propose': 2,
-            'objectives': [
+            'oracles': [
                 {'name': 'obj_1', 'input_dim': 2}
             ]
         }
@@ -229,7 +225,7 @@ def test_checkpoint_frequency():
         with open(config_path, 'w') as f:
             yaml.dump(config, f)
 
-        algorithm = RandomSampling(n_propose=2, input_dim=2, seed=42)
+        algorithm = RandomSampling(input_dims=[2], n_propose=2, seed=42)
 
         engine = Engine(
             config_path=str(config_path),

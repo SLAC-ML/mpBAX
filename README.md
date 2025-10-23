@@ -5,7 +5,8 @@ A lightweight framework for model-based multi-objective optimization with built-
 ## Features
 
 - **Simple & Robust**: Minimal dependencies, straightforward architecture
-- **Multi-Objective Support**: Optimize multiple independent objectives with different input dimensions
+- **Multi-Oracle Support**: Optimize multiple independent oracles with different input dimensions
+- **Multi-Output Support**: Oracles can return multiple outputs (Y with shape (n, k) where k ≥ 1)
 - **Checkpointing**: Automatic checkpointing with resume and rollback capabilities
 - **Reproducible**: Built-in seed management for reproducible results
 - **Modular Design**: Easy to extend with custom models and algorithms
@@ -31,7 +32,7 @@ from mpbax.core.algorithm import GreedySampling
 
 # Define your oracle function
 def my_oracle(X: np.ndarray) -> np.ndarray:
-    """X has shape (n, d), returns Y with shape (n, 1)"""
+    """X has shape (n, d), returns Y with shape (n, k) where k >= 1"""
     return np.sum(X**2, axis=1, keepdims=True)
 
 # Create config
@@ -40,28 +41,32 @@ config = {
     'max_loops': 10,
     'n_initial': 20,
     'checkpoint': {'dir': 'checkpoints', 'freq': 1, 'resume_from': None},
-    'n_propose': 10,
-    'objectives': [{'name': 'my_obj', 'input_dim': 2}]
+    'oracles': [{'name': 'my_obj', 'input_dim': 2}],
+    'algorithm': {
+        'class': 'GreedySampling',
+        'params': {
+            'input_dims': [2],
+            'n_propose': 10,
+            'n_candidates': 1000
+        }
+    }
 }
 
 # Save config
 with open('config.yaml', 'w') as f:
     yaml.dump(config, f)
 
-# Create algorithm
-algorithm = GreedySampling(n_propose=10, input_dim=2, seed=42)
-
-# Run optimization
+# Run optimization (algorithm auto-instantiated from config)
 engine = Engine(
     config_path='config.yaml',
     fn_oracles=[my_oracle],
     model_class=DummyModel,
-    algorithm=algorithm
+    algorithm=None  # Auto-instantiate from config
 )
 engine.run()
 ```
 
-### Multi-Objective Optimization
+### Multi-Oracle Optimization
 
 ```python
 # Define multiple oracle functions
@@ -71,18 +76,47 @@ def oracle_1(X: np.ndarray) -> np.ndarray:  # 2D input
 def oracle_2(X: np.ndarray) -> np.ndarray:  # 3D input
     return np.sum(X, axis=1, keepdims=True)
 
-# Update config for multiple objectives
-config['objectives'] = [
+# Update config for multiple oracles
+config['oracles'] = [
     {'name': 'obj1', 'input_dim': 2},
     {'name': 'obj2', 'input_dim': 3}
 ]
+config['algorithm'] = {
+    'class': 'GreedySampling',
+    'params': {
+        'input_dims': [2, 3],  # Must match oracle dimensions
+        'n_propose': 8,
+        'n_candidates': 500
+    }
+}
 
 # Run with multiple oracles
 engine = Engine(
     config_path='config.yaml',
     fn_oracles=[oracle_1, oracle_2],
     model_class=DummyModel,
-    algorithm=algorithm
+    algorithm=None  # Auto-instantiate from config
+)
+engine.run()
+```
+
+### Multi-Output Oracle
+
+```python
+# Oracle that returns multiple outputs per evaluation
+def multi_output_oracle(X: np.ndarray) -> np.ndarray:
+    """Returns Y with shape (n, 3) - three outputs per input"""
+    sum_squares = np.sum(X**2, axis=1, keepdims=True)
+    sum_vals = np.sum(X, axis=1, keepdims=True)
+    max_vals = np.max(X, axis=1, keepdims=True)
+    return np.hstack([sum_squares, sum_vals, max_vals])
+
+# Single oracle with multiple outputs
+engine = Engine(
+    config_path='config.yaml',
+    fn_oracles=[multi_output_oracle],
+    model_class=DummyModel,
+    algorithm=None
 )
 engine.run()
 ```
@@ -128,6 +162,7 @@ mpBAX/
 │   ├── examples/       # Example scripts
 │   │   ├── example_single_objective.py
 │   │   ├── example_multi_objective.py
+│   │   ├── example_multi_output.py
 │   │   └── example_checkpoint_workflow.py
 │   ├── tests/          # Unit tests
 │   │   ├── test_data_handler.py
@@ -143,8 +178,11 @@ mpBAX/
 # Single-objective example
 PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_single_objective.py
 
-# Multi-objective example
+# Multi-oracle example
 PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_multi_objective.py
+
+# Multi-output oracle example
+PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_multi_output.py
 
 # Checkpoint workflow demo
 PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/examples/example_checkpoint_workflow.py
@@ -170,10 +208,10 @@ PYTHONPATH=/path/to/mpBAX:$PYTHONPATH python mpbax/tests/test_engine.py
 
 ### Data Shape Conventions
 
-- **Input X**: Shape `(n, d)` where `n` = number of samples, `d` = dimensionality
-- **Output Y**: Shape `(n, 1)` where `n` = number of samples
+- **Input X**: Shape `(n, d)` where `n` = number of samples, `d` = input dimensionality
+- **Output Y**: Shape `(n, k)` where `n` = number of samples, `k` = number of outputs (k ≥ 1)
 
-All components enforce these shapes for consistency.
+All components enforce these shapes for consistency. Multi-output oracles (k > 1) are fully supported.
 
 ### Workflow
 
@@ -184,15 +222,16 @@ All components enforce these shapes for consistency.
 5. **Checkpoint**: Save data and model
 6. **Repeat** until termination condition
 
-### Multi-Objective Design
+### Multi-Oracle Design
 
-Each objective operates independently with:
-- Its own oracle function
+Each oracle operates independently with:
+- Its own oracle function (fn_oracle)
 - Its own input space (can have different dimensions)
-- Its own data handler
-- Its own model
+- Its own data handler (stores X, Y pairs)
+- Its own model (trains on oracle-specific data)
+- Its own predict function (fn_pred)
 
-The algorithm receives all predict functions to enable model-based multi-objective optimization.
+The algorithm's `propose()` method receives all predict functions and returns a list of X arrays (one per oracle) to enable model-based multi-oracle optimization.
 
 ## Configuration Options
 
@@ -200,17 +239,23 @@ The algorithm receives all predict functions to enable model-based multi-objecti
 seed: 42                    # Random seed for reproducibility
 max_loops: 10               # Maximum number of optimization loops
 n_initial: 20               # Number of initial samples
-n_propose: 10               # Number of candidates to propose per loop
 
 checkpoint:
   dir: "checkpoints"        # Checkpoint directory
   freq: 1                   # Checkpoint every N loops
   resume_from: null         # null, "latest", or loop number
 
-objectives:
-  - name: "obj_1"           # Objective name
+oracles:
+  - name: "oracle_1"        # Oracle name
     input_dim: 2            # Input dimensionality
-  # Add more objectives for multi-objective optimization
+  # Add more oracles for multi-oracle optimization
+
+algorithm:
+  class: "GreedySampling"   # Algorithm class name (built-in or custom)
+  params:                   # Algorithm-specific parameters
+    input_dims: [2]         # List of input dimensions (one per oracle)
+    n_propose: 10           # Number of candidates to propose per loop
+    n_candidates: 1000      # Number of candidate points to evaluate
 ```
 
 ## Extending the Framework
@@ -223,10 +268,13 @@ from mpbax.core.model import BaseModel
 class MyModel(BaseModel):
     def train(self, X: np.ndarray, Y: np.ndarray) -> None:
         # Your training logic
+        # X shape: (n, d), Y shape: (n, k) where k >= 1
         pass
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        # Your prediction logic (must return shape (n, 1))
+        # Your prediction logic
+        # Input: X shape (n, d)
+        # Returns: Y shape (n, k) matching oracle output dimensions
         pass
 ```
 
@@ -234,12 +282,40 @@ class MyModel(BaseModel):
 
 ```python
 from mpbax.core.algorithm import BaseAlgorithm
+from typing import List, Callable
+import numpy as np
 
 class MyAlgorithm(BaseAlgorithm):
-    def propose(self, fn_pred_list):
+    def __init__(self, input_dims: List[int], n_propose: int, **kwargs):
+        """Define your own constructor with needed parameters.
+
+        Args:
+            input_dims: List of input dimensions (one per oracle)
+            n_propose: Number of candidates to propose per loop
+            **kwargs: Additional algorithm-specific parameters
+        """
+        self.input_dims = input_dims
+        self.n_propose = n_propose
+        # Your initialization logic
+
+    def propose(self, fn_pred_list: List[Callable]) -> List[np.ndarray]:
+        """Propose new candidates for each oracle.
+
+        Args:
+            fn_pred_list: List of predict functions (one per oracle)
+
+        Returns:
+            List of X arrays, one per oracle
+            X_i has shape (n_propose, input_dims[i])
+        """
         # Your candidate proposal logic
-        # Returns X with shape (n_propose, input_dim)
-        pass
+        # Must return len(X_list) == len(fn_pred_list)
+        X_list = []
+        for i, fn_pred in enumerate(fn_pred_list):
+            # Generate candidates for oracle i
+            X_i = ...  # Shape (n_propose, input_dims[i])
+            X_list.append(X_i)
+        return X_list
 ```
 
 ## Design Principles

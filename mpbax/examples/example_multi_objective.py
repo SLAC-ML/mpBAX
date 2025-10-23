@@ -2,12 +2,12 @@
 Multi-objective optimization example.
 
 This example demonstrates how to use mpBAX for multi-objective optimization with
-two independent objectives that have different input dimensions:
+two independent oracles that have different input dimensions:
 
-Objective 1 (2D): Minimize (x1 - 0.3)^2 + (x2 - 0.7)^2
-Objective 2 (3D): Minimize x1^2 + x2^2 + x3^2
+Oracle 1 (2D): Minimize (x1 - 0.3)^2 + (x2 - 0.7)^2
+Oracle 2 (3D): Minimize x1^2 + x2^2 + x3^2
 
-Each objective operates on its own input space independently.
+Each oracle operates on its own input space independently.
 """
 
 import numpy as np
@@ -16,7 +16,6 @@ from pathlib import Path
 
 from mpbax.core.engine import Engine
 from mpbax.core.model import DummyModel
-from mpbax.core.algorithm import GreedySampling
 
 
 # Define oracle functions
@@ -59,8 +58,7 @@ def main():
             'freq': 1,
             'resume_from': None  # Set to 'latest' to resume
         },
-        'n_propose': 8,
-        'objectives': [
+        'oracles': [
             {
                 'name': 'obj1_2d',
                 'input_dim': 2
@@ -69,7 +67,15 @@ def main():
                 'name': 'obj2_3d',
                 'input_dim': 3
             }
-        ]
+        ],
+        'algorithm': {
+            'class': 'GreedySampling',
+            'params': {
+                'input_dims': [2, 3],  # Must match oracle dimensions
+                'n_propose': 8,
+                'n_candidates': 500
+            }
+        }
     }
 
     # Save config
@@ -80,26 +86,18 @@ def main():
     print("=" * 60)
     print("Multi-Objective Optimization with mpBAX")
     print("=" * 60)
-    print("Objective 1 (2D): Minimize (x1-0.3)^2 + (x2-0.7)^2")
+    print("Oracle 1 (2D): Minimize (x1-0.3)^2 + (x2-0.7)^2")
     print("  Global minimum: (0.3, 0.7) with f = 0")
-    print("\nObjective 2 (3D): Minimize x1^2 + x2^2 + x3^2")
+    print("\nOracle 2 (3D): Minimize x1^2 + x2^2 + x3^2")
     print("  Global minimum: (0, 0, 0) with f = 0")
     print("=" * 60)
 
-    # Create algorithm (will be instantiated per-objective with correct dims)
-    algorithm = GreedySampling(
-        n_propose=config['n_propose'],
-        input_dim=2,  # Placeholder, will be overridden per objective
-        seed=config['seed'],
-        n_candidates=500
-    )
-
-    # Create and run engine
+    # Create and run engine (algorithm auto-instantiated from config)
     engine = Engine(
         config_path=config_path,
         fn_oracles=[oracle_obj1, oracle_obj2],
         model_class=DummyModel,
-        algorithm=algorithm
+        algorithm=None  # Auto-instantiate from config
     )
 
     engine.run()
@@ -108,12 +106,12 @@ def main():
     print("Optimization Complete!")
     print("=" * 60)
 
-    # Load final data to find best solutions for each objective
+    # Load final data to find best solutions for each oracle
     from mpbax.core.checkpoint import CheckpointManager
     checkpoint_manager = CheckpointManager(config['checkpoint']['dir'])
     loop, data_handlers, _, _, obj_names = checkpoint_manager.load_checkpoint()
 
-    # Analyze each objective
+    # Analyze each oracle
     for i, (dh, obj_name) in enumerate(zip(data_handlers, obj_names)):
         X_all, Y_all = dh.get_data()
 

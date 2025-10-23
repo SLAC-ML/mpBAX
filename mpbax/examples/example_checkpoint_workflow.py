@@ -48,7 +48,7 @@ def run_initial():
             'resume_from': None
         },
         'n_propose': 5,
-        'objectives': [
+        'oracles': [
             {'name': 'sphere', 'input_dim': 2}
         ]
     }
@@ -57,7 +57,7 @@ def run_initial():
     with open(config_path, 'w') as f:
         yaml.dump(config, f)
 
-    algorithm = RandomSampling(n_propose=5, input_dim=2, seed=42)
+    algorithm = RandomSampling(input_dims=[2], n_propose=5, seed=42)
 
     engine = Engine(
         config_path=config_path,
@@ -91,7 +91,7 @@ def run_resume():
             'resume_from': 'latest'  # Resume from latest checkpoint
         },
         'n_propose': 5,
-        'objectives': [
+        'oracles': [
             {'name': 'sphere', 'input_dim': 2}
         ]
     }
@@ -100,7 +100,7 @@ def run_resume():
     with open(config_path, 'w') as f:
         yaml.dump(config, f)
 
-    algorithm = RandomSampling(n_propose=5, input_dim=2, seed=42)
+    algorithm = RandomSampling(input_dims=[2], n_propose=5, seed=42)
 
     engine = Engine(
         config_path=config_path,
@@ -142,7 +142,7 @@ def run_rollback():
             'resume_from': 'latest'  # Will load loop 3
         },
         'n_propose': 5,
-        'objectives': [
+        'oracles': [
             {'name': 'sphere', 'input_dim': 2}
         ]
     }
@@ -151,7 +151,7 @@ def run_rollback():
     with open(config_path, 'w') as f:
         yaml.dump(config, f)
 
-    algorithm = RandomSampling(n_propose=5, input_dim=2, seed=999)
+    algorithm = RandomSampling(input_dims=[2], n_propose=5, seed=999)
 
     engine = Engine(
         config_path=config_path,

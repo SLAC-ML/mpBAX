@@ -13,7 +13,6 @@ from pathlib import Path
 
 from mpbax.core.engine import Engine
 from mpbax.core.model import DummyModel
-from mpbax.core.algorithm import GreedySampling
 
 
 # Define the oracle function (simulation)
@@ -44,13 +43,20 @@ def main():
             'freq': 1,
             'resume_from': None  # Set to 'latest' to resume
         },
-        'n_propose': 10,
-        'objectives': [
+        'oracles': [
             {
                 'name': 'quadratic',
                 'input_dim': 2
             }
-        ]
+        ],
+        'algorithm': {
+            'class': 'GreedySampling',
+            'params': {
+                'input_dims': [2],
+                'n_propose': 10,
+                'n_candidates': 1000
+            }
+        }
     }
 
     # Save config
@@ -66,20 +72,12 @@ def main():
     print(f"Search space: [0, 1]^2")
     print("=" * 60)
 
-    # Create algorithm
-    algorithm = GreedySampling(
-        n_propose=config['n_propose'],
-        input_dim=2,
-        seed=config['seed'],
-        n_candidates=1000
-    )
-
-    # Create and run engine
+    # Create and run engine (algorithm auto-instantiated from config)
     engine = Engine(
         config_path=config_path,
         fn_oracles=[oracle_quadratic],
         model_class=DummyModel,
-        algorithm=algorithm
+        algorithm=None  # Auto-instantiate from config
     )
 
     engine.run()
