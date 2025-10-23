@@ -62,9 +62,9 @@ class Engine:
 
         # Initialize components
         n_oracles = len(fn_oracles)
-        self.obj_configs = self.config['oracles']
-        assert len(self.obj_configs) == n_oracles, \
-            f"Config has {len(self.obj_configs)} oracles, but {n_oracles} fn_oracles provided"
+        self.oracle_configs = self.config['oracles']
+        assert len(self.oracle_configs) == n_oracles, \
+            f"Config has {len(self.oracle_configs)} oracles, but {n_oracles} fn_oracles provided"
 
         # Instantiate algorithm if not provided
         if algorithm is None:
@@ -74,11 +74,11 @@ class Engine:
 
         # Create evaluators
         self.evaluators = []
-        for i, (fn_oracle, obj_config) in enumerate(zip(fn_oracles, self.obj_configs)):
+        for i, (fn_oracle, oracle_config) in enumerate(zip(fn_oracles, self.oracle_configs)):
             evaluator = Evaluator(
                 fn_oracle=fn_oracle,
-                input_dim=obj_config['input_dim'],
-                name=obj_config['name']
+                input_dim=oracle_config['input_dim'],
+                name=oracle_config['name']
             )
             self.evaluators.append(evaluator)
 
@@ -126,14 +126,14 @@ class Engine:
                     )
 
                 # Evaluate each X with corresponding oracle
-                for i, (X_new, evaluator, obj_config) in enumerate(
-                    zip(X_list, self.evaluators, self.obj_configs)
+                for i, (X_new, evaluator, oracle_config) in enumerate(
+                    zip(X_list, self.evaluators, self.oracle_configs)
                 ):
                     # Evaluate new candidates
                     Y_new = evaluator.evaluate(X_new)
 
                     # Create data handler for this loop's data
-                    dh_new = DataHandler(input_dim=obj_config['input_dim'])
+                    dh_new = DataHandler(input_dim=oracle_config['input_dim'])
                     dh_new.add_data(X_new, Y_new)
 
                     # Store for checkpointing
@@ -144,24 +144,24 @@ class Engine:
 
             # Step 4: Train models
             print("Training models...")
-            for i, obj_config in enumerate(self.obj_configs):
+            for i, oracle_config in enumerate(self.oracle_configs):
                 X_train, Y_train = accumulated_data[i]
 
                 # Create new model for this loop
-                model = self.model_class(input_dim=obj_config['input_dim'])
+                model = self.model_class(input_dim=oracle_config['input_dim'])
                 model.train(X_train, Y_train)
                 self.models[i] = model
 
             # Step 5: Save checkpoint
             if self.current_loop % checkpoint_freq == 0:
                 print(f"Saving checkpoint at loop {self.current_loop}...")
-                obj_names = [obj['name'] for obj in self.obj_configs]
+                oracle_names = [obj['name'] for obj in self.oracle_configs]
                 self.checkpoint_manager.save_checkpoint(
                     loop=self.current_loop,
                     data_handlers=self.data_handlers,
                     models=self.models,
                     config=self.config,
-                    obj_names=obj_names
+                    oracle_names=oracle_names
                 )
 
             # Print progress
@@ -183,23 +183,23 @@ class Engine:
         self.data_handlers = []
         self.models = []
 
-        # Generate and evaluate initial data for each objective
-        for i, (evaluator, obj_config) in enumerate(zip(self.evaluators, self.obj_configs)):
-            print(f"Generating initial data for {obj_config['name']}...")
+        # Generate and evaluate initial data for each oracle
+        for i, (evaluator, oracle_config) in enumerate(zip(self.evaluators, self.oracle_configs)):
+            print(f"Generating initial data for {oracle_config['name']}...")
 
             # Generate initial samples
-            X0 = self.fn_generate(n_initial, obj_config['input_dim'])
+            X0 = self.fn_generate(n_initial, oracle_config['input_dim'])
 
             # Evaluate
             Y0 = evaluator.evaluate(X0)
 
             # Create data handler
-            dh = DataHandler(input_dim=obj_config['input_dim'])
+            dh = DataHandler(input_dim=oracle_config['input_dim'])
             dh.add_data(X0, Y0)
             self.data_handlers.append(dh)
 
             # Initialize empty model (will be trained in first loop)
-            model = self.model_class(input_dim=obj_config['input_dim'])
+            model = self.model_class(input_dim=oracle_config['input_dim'])
             self.models.append(model)
 
         self.current_loop = 0

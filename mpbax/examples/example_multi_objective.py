@@ -109,10 +109,10 @@ def main():
     # Load final data to find best solutions for each oracle
     from mpbax.core.checkpoint import CheckpointManager
     checkpoint_manager = CheckpointManager(config['checkpoint']['dir'])
-    loop, data_handlers, _, _, obj_names = checkpoint_manager.load_checkpoint()
+    loop, data_handlers, _, _, oracle_names = checkpoint_manager.load_checkpoint()
 
     # Analyze each oracle
-    for i, (dh, obj_name) in enumerate(zip(data_handlers, obj_names)):
+    for i, (dh, oracle_name) in enumerate(zip(data_handlers, oracle_names)):
         X_all, Y_all = dh.get_data()
 
         # Find best solution
@@ -120,7 +120,7 @@ def main():
         best_x = X_all[best_idx]
         best_y = Y_all[best_idx]
 
-        print(f"\n{obj_name}:")
+        print(f"\n{oracle_name}:")
         print(f"  Total evaluations: {engine.evaluators[i].get_eval_count()}")
         print(f"  Best solution: x = {best_x}")
         print(f"  Best value: f(x) = {best_y[0]:.6f}")

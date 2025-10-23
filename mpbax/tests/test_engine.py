@@ -22,9 +22,9 @@ def oracle_sum(X: np.ndarray) -> np.ndarray:
     return np.sum(X, axis=1, keepdims=True)
 
 
-def test_single_objective_run():
-    """Test full run with single objective."""
-    print("Testing single-objective run...")
+def test_single_oracle_run():
+    """Test full run with single oracle."""
+    print("Testing single-oracle run...")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create config file
@@ -63,8 +63,8 @@ def test_single_objective_run():
         checkpoint_dir = Path(config['checkpoint']['dir'])
         assert checkpoint_dir.exists()
         assert (checkpoint_dir / 'config.yaml').exists()
-        assert (checkpoint_dir / 'obj_0' / 'data_0.pkl').exists()
-        assert (checkpoint_dir / 'obj_0' / 'model_0.pkl').exists()
+        assert (checkpoint_dir / 'oracle_0' / 'data_0.pkl').exists()
+        assert (checkpoint_dir / 'oracle_0' / 'model_0.pkl').exists()
 
         # Verify all loops completed
         loops = engine.checkpoint_manager.list_checkpoints()
@@ -77,15 +77,15 @@ def test_single_objective_run():
         # Total: 11
         assert engine.evaluators[0].get_eval_count() == 11
 
-    print("Single-objective run test passed!\n")
+    print("Single-oracle run test passed!\n")
 
 
-def test_multi_objective_run():
-    """Test full run with multiple objectives."""
-    print("Testing multi-objective run...")
+def test_multi_oracle_run():
+    """Test full run with multiple oracles."""
+    print("Testing multi-oracle run...")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Create config file for 2 objectives
+        # Create config file for 2 oracles
         config = {
             'seed': 42,
             'max_loops': 2,
@@ -96,8 +96,8 @@ def test_multi_objective_run():
                 'resume_from': None
             },
             'oracles': [
-                {'name': 'objective_1', 'input_dim': 2},
-                {'name': 'objective_2', 'input_dim': 3}
+                {'name': 'oracle_1', 'input_dim': 2},
+                {'name': 'oracle_2', 'input_dim': 3}
             ]
         }
 
@@ -118,18 +118,18 @@ def test_multi_objective_run():
 
         engine.run()
 
-        # Verify checkpoints for both objectives
+        # Verify checkpoints for both oracles
         checkpoint_dir = Path(config['checkpoint']['dir'])
-        for obj_idx in [0, 1]:
-            assert (checkpoint_dir / f'obj_{obj_idx}' / 'data_0.pkl').exists()
-            assert (checkpoint_dir / f'obj_{obj_idx}' / 'model_0.pkl').exists()
+        for oracle_idx in [0, 1]:
+            assert (checkpoint_dir / f'oracle_{oracle_idx}' / 'data_0.pkl').exists()
+            assert (checkpoint_dir / f'oracle_{oracle_idx}' / 'model_0.pkl').exists()
 
         # Verify evaluation counts
-        # Each objective: Loop 0: 4 initial, Loop 1: 2 proposed = 6 total
+        # Each oracle: Loop 0: 4 initial, Loop 1: 2 proposed = 6 total
         assert engine.evaluators[0].get_eval_count() == 6
         assert engine.evaluators[1].get_eval_count() == 6
 
-    print("Multi-objective run test passed!\n")
+    print("Multi-oracle run test passed!\n")
 
 
 def test_resume_from_checkpoint():
@@ -243,8 +243,8 @@ def test_checkpoint_frequency():
 
 
 if __name__ == "__main__":
-    test_single_objective_run()
-    test_multi_objective_run()
+    test_single_oracle_run()
+    test_multi_oracle_run()
     test_resume_from_checkpoint()
     test_checkpoint_frequency()
     print("All Engine tests passed!")

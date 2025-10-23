@@ -17,14 +17,14 @@ class CheckpointManager:
     - checkpoint_dir/
       - config.yaml          # Run configuration
       - state.pkl            # Run state (current loop, seed, etc.)
-      - obj_0/               # Objective 0
+      - oracle_0/            # Oracle 0
         - data_0.pkl
         - data_1.pkl
         - ...
         - model_0.pkl
         - model_1.pkl
         - ...
-      - obj_1/               # Objective 1
+      - oracle_1/            # Oracle 1
         - ...
     """
 
@@ -42,16 +42,16 @@ class CheckpointManager:
         data_handlers: List[DataHandler],
         models: List[BaseModel],
         config: Dict,
-        obj_names: List[str]
+        oracle_names: List[str]
     ) -> None:
         """Save checkpoint for current loop.
 
         Args:
             loop: Current loop number
-            data_handlers: List of DataHandler instances (one per objective)
-            models: List of Model instances (one per objective)
+            data_handlers: List of DataHandler instances (one per oracle)
+            models: List of Model instances (one per oracle)
             config: Configuration dictionary
-            obj_names: List of objective names
+            oracle_names: List of oracle names
         """
         # Create checkpoint directory
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -65,24 +65,24 @@ class CheckpointManager:
         # Save state
         state = {
             'current_loop': loop,
-            'n_objectives': len(obj_names),
-            'obj_names': obj_names
+            'n_oracles': len(oracle_names),
+            'oracle_names': oracle_names
         }
         state_path = self.checkpoint_dir / "state.pkl"
         with open(state_path, 'wb') as f:
             pickle.dump(state, f)
 
-        # Save data and models for each objective
-        for i, (data_handler, model, obj_name) in enumerate(zip(data_handlers, models, obj_names)):
-            obj_dir = self.checkpoint_dir / f"obj_{i}"
-            obj_dir.mkdir(exist_ok=True)
+        # Save data and models for each oracle
+        for i, (data_handler, model, oracle_name) in enumerate(zip(data_handlers, models, oracle_names)):
+            oracle_dir = self.checkpoint_dir / f"oracle_{i}"
+            oracle_dir.mkdir(exist_ok=True)
 
             # Save data_loop
-            data_path = obj_dir / f"data_{loop}.pkl"
+            data_path = oracle_dir / f"data_{loop}.pkl"
             data_handler.save(str(data_path))
 
             # Save model_loop
-            model_path = obj_dir / f"model_{loop}.pkl"
+            model_path = oracle_dir / f"model_{loop}.pkl"
             model.save(str(model_path))
 
     def get_latest_loop(self) -> Optional[int]:
@@ -110,7 +110,7 @@ class CheckpointManager:
             loop: Loop number to load from. If None, loads latest.
 
         Returns:
-            Tuple of (loop, data_handlers, models, config, obj_names)
+            Tuple of (loop, data_handlers, models, config, oracle_names)
 
         Raises:
             ValueError: If checkpoint doesn't exist
@@ -119,7 +119,7 @@ class CheckpointManager:
         if not self.checkpoint_dir.exists():
             raise ValueError(f"Checkpoint directory {self.checkpoint_dir} does not exist")
 
-        # Load state to get objective info
+        # Load state to get oracle info
         state_path = self.checkpoint_dir / "state.pkl"
         if not state_path.exists():
             raise ValueError("No checkpoint state found")
@@ -136,19 +136,19 @@ class CheckpointManager:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
 
-        # Load data and models for each objective
-        n_objectives = state['n_objectives']
-        obj_names = state['obj_names']
+        # Load data and models for each oracle
+        n_oracles = state['n_oracles']
+        oracle_names = state['oracle_names']
         data_handlers = []
         models = []
 
-        for i in range(n_objectives):
-            obj_dir = self.checkpoint_dir / f"obj_{i}"
+        for i in range(n_oracles):
+            oracle_dir = self.checkpoint_dir / f"oracle_{i}"
 
             # Load all data from 0 to loop
             data_handler_combined = None
             for data_loop in range(loop + 1):
-                data_path = obj_dir / f"data_{data_loop}.pkl"
+                data_path = oracle_dir / f"data_{data_loop}.pkl"
                 if not data_path.exists():
                     raise ValueError(f"Data file {data_path} not found")
 
@@ -165,14 +165,14 @@ class CheckpointManager:
             data_handlers.append(data_handler_combined)
 
             # Load model for this loop
-            model_path = obj_dir / f"model_{loop}.pkl"
+            model_path = oracle_dir / f"model_{loop}.pkl"
             if not model_path.exists():
                 raise ValueError(f"Model file {model_path} not found")
 
             model = BaseModel.load(str(model_path))
             models.append(model)
 
-        return loop, data_handlers, models, config, obj_names
+        return loop, data_handlers, models, config, oracle_names
 
     def list_checkpoints(self) -> List[int]:
         """List all available checkpoint loop numbers.
@@ -183,13 +183,13 @@ class CheckpointManager:
         if not self.checkpoint_dir.exists():
             return []
 
-        # Get loops from first objective's data files
-        obj_0_dir = self.checkpoint_dir / "obj_0"
-        if not obj_0_dir.exists():
+        # Get loops from first oracle's data files
+        oracle_0_dir = self.checkpoint_dir / "oracle_0"
+        if not oracle_0_dir.exists():
             return []
 
         loops = []
-        for data_file in sorted(obj_0_dir.glob("data_*.pkl")):
+        for data_file in sorted(oracle_0_dir.glob("data_*.pkl")):
             loop_num = int(data_file.stem.split('_')[1])
             loops.append(loop_num)
 
@@ -210,20 +210,20 @@ class CheckpointManager:
         with open(state_path, 'rb') as f:
             state = pickle.load(f)
 
-        n_objectives = state['n_objectives']
+        n_oracles = state['n_oracles']
 
         # Delete data and model files after specified loop
-        for i in range(n_objectives):
-            obj_dir = self.checkpoint_dir / f"obj_{i}"
-            if not obj_dir.exists():
+        for i in range(n_oracles):
+            oracle_dir = self.checkpoint_dir / f"oracle_{i}"
+            if not oracle_dir.exists():
                 continue
 
-            for data_file in obj_dir.glob(f"data_*.pkl"):
+            for data_file in oracle_dir.glob(f"data_*.pkl"):
                 loop_num = int(data_file.stem.split('_')[1])
                 if loop_num > loop:
                     data_file.unlink()
 
-            for model_file in obj_dir.glob(f"model_*.pkl"):
+            for model_file in oracle_dir.glob(f"model_*.pkl"):
                 loop_num = int(model_file.stem.split('_')[1])
                 if loop_num > loop:
                     model_file.unlink()

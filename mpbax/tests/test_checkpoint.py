@@ -18,10 +18,10 @@ def test_save_and_load():
         checkpoint_dir = Path(tmpdir) / "checkpoints"
         manager = CheckpointManager(str(checkpoint_dir))
 
-        # Create test data and models for 2 objectives
+        # Create test data and models for 2 oracles
         data_handlers = []
         models = []
-        obj_names = ["obj_0", "obj_1"]
+        oracle_names = ["oracle_0", "oracle_1"]
 
         for i in range(2):
             # Data handler with some data
@@ -45,17 +45,17 @@ def test_save_and_load():
             data_handlers=data_handlers,
             models=models,
             config=config,
-            obj_names=obj_names
+            oracle_names=oracle_names
         )
 
         # Verify checkpoint was saved
         assert checkpoint_dir.exists()
         assert (checkpoint_dir / "config.yaml").exists()
         assert (checkpoint_dir / "state.pkl").exists()
-        assert (checkpoint_dir / "obj_0" / "data_0.pkl").exists()
-        assert (checkpoint_dir / "obj_0" / "model_0.pkl").exists()
-        assert (checkpoint_dir / "obj_1" / "data_0.pkl").exists()
-        assert (checkpoint_dir / "obj_1" / "model_0.pkl").exists()
+        assert (checkpoint_dir / "oracle_0" / "data_0.pkl").exists()
+        assert (checkpoint_dir / "oracle_0" / "model_0.pkl").exists()
+        assert (checkpoint_dir / "oracle_1" / "data_0.pkl").exists()
+        assert (checkpoint_dir / "oracle_1" / "model_0.pkl").exists()
 
         # Load checkpoint
         loop, loaded_dhs, loaded_models, loaded_config, loaded_names = manager.load_checkpoint()
@@ -64,7 +64,7 @@ def test_save_and_load():
         assert len(loaded_dhs) == 2
         assert len(loaded_models) == 2
         assert loaded_config == config
-        assert loaded_names == obj_names
+        assert loaded_names == oracle_names
 
         # Verify data
         for i, dh in enumerate(loaded_dhs):
@@ -83,7 +83,7 @@ def test_multiple_loops():
         checkpoint_dir = Path(tmpdir) / "checkpoints"
         manager = CheckpointManager(str(checkpoint_dir))
 
-        obj_names = ["obj_0"]
+        oracle_names = ["oracle_0"]
         config = {"seed": 42}
 
         # Simulate 3 loops
@@ -104,7 +104,7 @@ def test_multiple_loops():
                 data_handlers=[dh],
                 models=[model],
                 config=config,
-                obj_names=obj_names
+                oracle_names=oracle_names
             )
 
         # Get latest loop
@@ -143,7 +143,7 @@ def test_rollback():
         checkpoint_dir = Path(tmpdir) / "checkpoints"
         manager = CheckpointManager(str(checkpoint_dir))
 
-        obj_names = ["obj_0"]
+        oracle_names = ["oracle_0"]
         config = {"seed": 42}
 
         # Create checkpoints for loops 0, 1, 2
@@ -161,7 +161,7 @@ def test_rollback():
                 data_handlers=[dh],
                 models=[model],
                 config=config,
-                obj_names=obj_names
+                oracle_names=oracle_names
             )
 
         # Verify we have 3 checkpoints
@@ -175,25 +175,25 @@ def test_rollback():
         assert manager.get_latest_loop() == 1
 
         # Verify files are actually deleted
-        obj_0_dir = checkpoint_dir / "obj_0"
-        assert not (obj_0_dir / "data_2.pkl").exists()
-        assert not (obj_0_dir / "model_2.pkl").exists()
+        oracle_0_dir = checkpoint_dir / "oracle_0"
+        assert not (oracle_0_dir / "data_2.pkl").exists()
+        assert not (oracle_0_dir / "model_2.pkl").exists()
 
     print("Rollback test passed!\n")
 
 
 def test_multi_objective():
-    """Test checkpointing with multiple objectives."""
+    """Test checkpointing with multiple oracles."""
     print("Testing multi-objective checkpointing...")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         checkpoint_dir = Path(tmpdir) / "checkpoints"
         manager = CheckpointManager(str(checkpoint_dir))
 
-        obj_names = ["objective_1", "objective_2", "objective_3"]
-        config = {"seed": 42, "n_objectives": 3}
+        oracle_names = ["objective_1", "objective_2", "objective_3"]
+        config = {"seed": 42, "n_oracles": 3}
 
-        # Create data and models for 3 objectives
+        # Create data and models for 3 oracles
         data_handlers = []
         models = []
 
@@ -214,7 +214,7 @@ def test_multi_objective():
             data_handlers=data_handlers,
             models=models,
             config=config,
-            obj_names=obj_names
+            oracle_names=oracle_names
         )
 
         # Load and verify
@@ -222,7 +222,7 @@ def test_multi_objective():
 
         assert len(loaded_dhs) == 3
         assert len(loaded_models) == 3
-        assert loaded_names == obj_names
+        assert loaded_names == oracle_names
 
         # Verify each objective has correct dimension
         for i, dh in enumerate(loaded_dhs):
