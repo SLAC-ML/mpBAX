@@ -5,6 +5,8 @@ This example demonstrates how to use mpBAX to optimize a simple 2D function:
 f(x1, x2) = (x1 - 0.3)^2 + (x2 - 0.7)^2
 
 The global minimum is at (0.3, 0.7) with f = 0.
+
+This example uses the pure config-first API - everything is specified in config.yaml.
 """
 
 import numpy as np
@@ -12,32 +14,15 @@ import yaml
 from pathlib import Path
 
 from mpbax.core.engine import Engine
-from mpbax.core.model import DummyModel
-
-
-# Define the oracle function (simulation)
-def oracle_quadratic(X: np.ndarray) -> np.ndarray:
-    """Oracle function: quadratic with minimum at (0.3, 0.7).
-
-    Args:
-        X: Input array with shape (n, 2)
-
-    Returns:
-        Y: Output array with shape (n, 1)
-    """
-    # f(x1, x2) = (x1 - 0.3)^2 + (x2 - 0.7)^2
-    Y = (X[:, 0] - 0.3)**2 + (X[:, 1] - 0.7)**2
-    return Y.reshape(-1, 1)
 
 
 def main():
     """Run single-objective optimization."""
 
-    # Create config file
+    # Create config with NEW structure - everything specified in config!
     config = {
         'seed': 42,
         'max_loops': 10,
-        'n_initial': 20,
         'checkpoint': {
             'dir': 'checkpoints_single_obj',
             'freq': 1,
@@ -46,7 +31,17 @@ def main():
         'oracles': [
             {
                 'name': 'quadratic',
-                'input_dim': 2
+                'input_dim': 2,
+                'n_initial': 20,  # Per-oracle n_initial
+                'function': {
+                    'class': 'mpbax.examples.oracles.oracle_quadratic',
+                    'params': {}
+                },
+                'generate': None,  # Use default uniform [0, 1]^d generator
+                'model': {
+                    'class': 'DummyModel',
+                    'params': {}
+                }
             }
         ],
         'algorithm': {
@@ -72,13 +67,8 @@ def main():
     print(f"Search space: [0, 1]^2")
     print("=" * 60)
 
-    # Create and run engine (algorithm auto-instantiated from config)
-    engine = Engine(
-        config=config,
-        fn_oracles=[oracle_quadratic],
-        model_class=DummyModel,
-        algorithm=None  # Auto-instantiate from config
-    )
+    # NEW API: Engine takes only config!
+    engine = Engine(config=config)
 
     engine.run()
 

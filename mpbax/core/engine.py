@@ -23,24 +23,13 @@ class Engine:
     5. Checkpoint and repeat
     """
 
-    def __init__(
-        self,
-        config: Union[str, Dict],
-        fn_oracles: List[Callable[[np.ndarray], np.ndarray]],
-        model_class: type,
-        algorithm: Optional[BaseAlgorithm] = None,
-        fn_generate: Optional[Callable[[int, int], np.ndarray]] = None
-    ):
-        """Initialize Engine.
+    def __init__(self, config: Union[str, Dict]):
+        """Initialize Engine from config only.
 
         Args:
             config: Either a dict containing config or a str path to config.yaml file
-            fn_oracles: List of oracle functions, one per oracle
-            model_class: Class for creating models (must be subclass of BaseModel)
-            algorithm: Optional algorithm instance. If None, instantiates from config.
-            fn_generate: Optional function to generate initial samples.
-                        Signature: (n_samples, input_dim) -> X (n_samples, input_dim)
-                        If None, uses uniform random in [0, 1]^d
+                   Config must specify all components: oracles (with functions and models),
+                   algorithm, and optionally generators.
         """
         # Load config
         if isinstance(config, str):
@@ -55,31 +44,38 @@ class Engine:
         self.seed = self.config.get('seed', 42)
         np.random.seed(self.seed)
 
-        # Store functions and classes
-        self.fn_oracles = fn_oracles
-        self.model_class = model_class
-        self.fn_generate = fn_generate or self._default_generate
-
-        # Initialize components
-        n_oracles = len(fn_oracles)
+        # Get oracle configs
         self.oracle_configs = self.config['oracles']
-        assert len(self.oracle_configs) == n_oracles, \
-            f"Config has {len(self.oracle_configs)} oracles, but {n_oracles} fn_oracles provided"
+        n_oracles = len(self.oracle_configs)
+
+        # Validate oracle configs
+        for i, oracle_config in enumerate(self.oracle_configs):
+            required_fields = ['name', 'input_dim', 'n_initial', 'function', 'model']
+            for field in required_fields:
+                if field not in oracle_config:
+                    raise ValueError(f"Oracle {i} missing required field: '{field}'")
+
+            # Validate function config
+            if 'class' not in oracle_config['function']:
+                raise ValueError(f"Oracle {i} function config missing 'class' field")
+
+            # Validate model config
+            if 'class' not in oracle_config['model']:
+                raise ValueError(f"Oracle {i} model config missing 'class' field")
 
         # Validate oracle names are unique
         oracle_names = [cfg['name'] for cfg in self.oracle_configs]
         if len(oracle_names) != len(set(oracle_names)):
             raise ValueError(f"Oracle names must be unique, got: {oracle_names}")
 
-        # Instantiate algorithm if not provided
-        if algorithm is None:
-            self.algorithm = self._instantiate_algorithm()
-        else:
-            self.algorithm = algorithm
+        # Instantiate components from config
+        self.fn_oracles = self._instantiate_oracle_functions()
+        self.fn_generate_list = self._instantiate_generators()
+        self.algorithm = self._instantiate_algorithm()
 
         # Create evaluators
         self.evaluators = []
-        for i, (fn_oracle, oracle_config) in enumerate(zip(fn_oracles, self.oracle_configs)):
+        for fn_oracle, oracle_config in zip(self.fn_oracles, self.oracle_configs):
             evaluator = Evaluator(
                 fn_oracle=fn_oracle,
                 input_dim=oracle_config['input_dim'],
@@ -190,18 +186,18 @@ class Engine:
         """Initialize a fresh optimization run with random data."""
         print("Initializing fresh run...")
 
-        n_initial = self.config['n_initial']
-
         # Initialize data handlers and models
         self.data_handlers = []
-        self.models = []
 
         # Generate and evaluate initial data for each oracle
         for i, (evaluator, oracle_config) in enumerate(zip(self.evaluators, self.oracle_configs)):
             print(f"Generating initial data for {oracle_config['name']}...")
 
-            # Generate initial samples
-            X0 = self.fn_generate(n_initial, oracle_config['input_dim'])
+            # Get n_initial for this oracle
+            n_initial = oracle_config['n_initial']
+
+            # Generate initial samples using per-oracle generator
+            X0 = self.fn_generate_list[i](n_initial, oracle_config['input_dim'])
 
             # Evaluate
             Y0 = evaluator.evaluate(X0)
@@ -211,9 +207,8 @@ class Engine:
             dh.add_data(X0, Y0, loop=0)  # Initial data is from loop 0
             self.data_handlers.append(dh)
 
-            # Initialize empty model (will be trained in first loop)
-            model = self.model_class(input_dim=oracle_config['input_dim'])
-            self.models.append(model)
+        # Instantiate models (will be trained in first loop)
+        self.models = self._instantiate_models()
 
         self.current_loop = 0
 
@@ -311,6 +306,147 @@ class Engine:
             X with shape (n, d)
         """
         return np.random.rand(n, d)
+
+    def _instantiate_oracle_functions(self) -> List[Callable]:
+        """Instantiate oracle functions from config.
+
+        For each oracle, reads function.class (import path) and function.params.
+        Imports the function/factory and instantiates with params.
+
+        Returns:
+            List of oracle functions with signature fn(X) -> Y
+
+        Raises:
+            ValueError: If function config is invalid or import fails
+        """
+        fn_oracles = []
+
+        for i, oracle_config in enumerate(self.oracle_configs):
+            fn_config = oracle_config['function']
+            fn_class_name = fn_config['class']
+            fn_params = fn_config.get('params', {})
+
+            try:
+                # Import function/factory
+                module_path, obj_name = fn_class_name.rsplit('.', 1)
+                import importlib
+                module = importlib.import_module(module_path)
+                fn_or_factory = getattr(module, obj_name)
+
+                # If params provided, call as factory; otherwise use directly
+                if fn_params:
+                    fn_oracle = fn_or_factory(**fn_params)
+                else:
+                    fn_oracle = fn_or_factory
+
+                fn_oracles.append(fn_oracle)
+
+            except (ValueError, ImportError, AttributeError, TypeError) as e:
+                raise ValueError(
+                    f"Failed to instantiate oracle function '{fn_class_name}' "
+                    f"for oracle {i} ('{oracle_config['name']}'): {e}"
+                )
+
+        return fn_oracles
+
+    def _instantiate_generators(self) -> List[Callable]:
+        """Instantiate generator functions from oracle configs.
+
+        For each oracle, reads optional generate config.
+        Returns list of generator functions.
+
+        Returns:
+            List of generator functions with signature fn(n_samples, input_dim) -> X
+
+        Raises:
+            ValueError: If generator config is invalid or import fails
+        """
+        fn_generate_list = []
+
+        for i, oracle_config in enumerate(self.oracle_configs):
+            gen_config = oracle_config.get('generate')
+
+            if gen_config is None:
+                # Use default generator
+                fn_generate_list.append(self._default_generate)
+            else:
+                # Import custom generator
+                gen_class_name = gen_config['class']
+                gen_params = gen_config.get('params', {})
+
+                try:
+                    # Import generator/factory
+                    module_path, obj_name = gen_class_name.rsplit('.', 1)
+                    import importlib
+                    module = importlib.import_module(module_path)
+                    gen_or_factory = getattr(module, obj_name)
+
+                    # If params provided, call as factory; otherwise use directly
+                    if gen_params:
+                        fn_generate = gen_or_factory(**gen_params)
+                    else:
+                        fn_generate = gen_or_factory
+
+                    fn_generate_list.append(fn_generate)
+
+                except (ValueError, ImportError, AttributeError, TypeError) as e:
+                    raise ValueError(
+                        f"Failed to instantiate generator '{gen_class_name}' "
+                        f"for oracle {i} ('{oracle_config['name']}'): {e}"
+                    )
+
+        return fn_generate_list
+
+    def _instantiate_models(self) -> List[BaseModel]:
+        """Instantiate models from oracle configs.
+
+        For each oracle, reads model.class and model.params.
+        Handles built-in models and custom models via import path.
+
+        Returns:
+            List of model instances
+
+        Raises:
+            ValueError: If model config is invalid or import fails
+        """
+        models = []
+
+        for i, oracle_config in enumerate(self.oracle_configs):
+            model_config = oracle_config['model']
+            model_class_name = model_config['class']
+            model_params = model_config.get('params', {})
+
+            # Handle built-in models
+            if model_class_name in ['DummyModel']:
+                from mpbax.core.model import DummyModel
+                model_class = DummyModel
+            elif model_class_name in ['DANetModel']:
+                from mpbax.plugins.models.da_net_model import DANetModel
+                model_class = DANetModel
+            else:
+                # Import custom model via full path
+                try:
+                    module_path, class_name = model_class_name.rsplit('.', 1)
+                    import importlib
+                    module = importlib.import_module(module_path)
+                    model_class = getattr(module, class_name)
+                except (ValueError, ImportError, AttributeError) as e:
+                    raise ValueError(
+                        f"Failed to import model class '{model_class_name}' "
+                        f"for oracle {i} ('{oracle_config['name']}'): {e}"
+                    )
+
+            # Instantiate model with input_dim and params
+            try:
+                model = model_class(input_dim=oracle_config['input_dim'], **model_params)
+                models.append(model)
+            except TypeError as e:
+                raise ValueError(
+                    f"Failed to instantiate {model_class_name} with params {model_params} "
+                    f"for oracle {i} ('{oracle_config['name']}'): {e}"
+                )
+
+        return models
 
     def _instantiate_algorithm(self) -> BaseAlgorithm:
         """Instantiate algorithm from config.

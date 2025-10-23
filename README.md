@@ -21,27 +21,47 @@ export PYTHONPATH=/path/to/mpBAX:$PYTHONPATH
 
 ## Quick Start
 
-### Single-Objective Optimization
+### Step 1: Define Oracle Functions
+
+Oracle functions must be importable from modules (for reproducibility):
 
 ```python
+# myproject/oracles.py
 import numpy as np
-import yaml
-from mpbax.core.engine import Engine
-from mpbax.core.model import DummyModel
-from mpbax.core.algorithm import GreedySampling
 
-# Define your oracle function
 def my_oracle(X: np.ndarray) -> np.ndarray:
     """X has shape (n, d), returns Y with shape (n, k) where k >= 1"""
     return np.sum(X**2, axis=1, keepdims=True)
+```
 
-# Create config
+### Step 2: Create Config
+
+**NEW in v2.0**: Everything is specified in config! This includes oracle functions, models, and generators.
+
+```python
+# myproject/run.py
+from mpbax.core.engine import Engine
+
 config = {
     'seed': 42,
     'max_loops': 10,
-    'n_initial': 20,
     'checkpoint': {'dir': 'checkpoints', 'freq': 1, 'resume_from': None},
-    'oracles': [{'name': 'my_obj', 'input_dim': 2}],
+    'oracles': [
+        {
+            'name': 'my_objective',
+            'input_dim': 2,
+            'n_initial': 20,  # Per-oracle initial samples
+            'function': {
+                'class': 'myproject.oracles.my_oracle',  # Import path
+                'params': {}  # Optional params for factory functions
+            },
+            'generate': None,  # Optional: custom generator (None = uniform [0,1]^d)
+            'model': {
+                'class': 'DummyModel',  # Built-in or full import path
+                'params': {}
+            }
+        }
+    ],
     'algorithm': {
         'class': 'GreedySampling',
         'params': {
@@ -52,47 +72,55 @@ config = {
     }
 }
 
-# Run optimization - pass config dict directly (no need to save to file)
-engine = Engine(
-    config=config,  # Can be dict or path to YAML file
-    fn_oracles=[my_oracle],
-    model_class=DummyModel,
-    algorithm=None  # Auto-instantiate from config
-)
+# NEW API: Engine takes only config!
+engine = Engine(config)
 engine.run()
 ```
 
 ### Multi-Oracle Optimization
 
 ```python
-# Define multiple oracle functions
+# Define multiple oracle functions in your module
+# myproject/oracles.py
 def oracle_1(X: np.ndarray) -> np.ndarray:  # 2D input
     return np.sum(X**2, axis=1, keepdims=True)
 
 def oracle_2(X: np.ndarray) -> np.ndarray:  # 3D input
     return np.sum(X, axis=1, keepdims=True)
 
-# Update config for multiple oracles
-config['oracles'] = [
-    {'name': 'obj1', 'input_dim': 2},
-    {'name': 'obj2', 'input_dim': 3}
-]
-config['algorithm'] = {
-    'class': 'GreedySampling',
-    'params': {
-        'input_dims': [2, 3],  # Must match oracle dimensions
-        'n_propose': 8,
-        'n_candidates': 500
+# Config with multiple oracles
+config = {
+    'seed': 42,
+    'max_loops': 10,
+    'checkpoint': {'dir': 'checkpoints', 'freq': 1},
+    'oracles': [
+        {
+            'name': 'obj1',
+            'input_dim': 2,
+            'n_initial': 20,
+            'function': {'class': 'myproject.oracles.oracle_1'},
+            'model': {'class': 'DummyModel'}
+        },
+        {
+            'name': 'obj2',
+            'input_dim': 3,
+            'n_initial': 30,  # Different n_initial per oracle!
+            'function': {'class': 'myproject.oracles.oracle_2'},
+            'model': {'class': 'DummyModel'}
+        }
+    ],
+    'algorithm': {
+        'class': 'GreedySampling',
+        'params': {
+            'input_dims': [2, 3],
+            'n_propose': 8,
+            'n_candidates': 500
+        }
     }
 }
 
-# Run with multiple oracles
-engine = Engine(
-    config=config,
-    fn_oracles=[oracle_1, oracle_2],
-    model_class=DummyModel,
-    algorithm=None  # Auto-instantiate from config
-)
+# Pure config-first API
+engine = Engine(config)
 engine.run()
 ```
 
@@ -442,22 +470,44 @@ The DA_Net plugin provides a deep neural network for multi-output regression wit
 pip install torch scikit-learn
 ```
 
-**Usage:**
+**Usage with NEW config-first API:**
 ```python
-from mpbax.core.engine import Engine
-from mpbax.plugins.models import DANetModel
+# myproject/oracles.py
+import numpy as np
 
-# Oracle function
 def my_oracle(X):
     return np.sum(X**2, axis=1, keepdims=True)
 
-# Config with DA_Net model
+# myproject/run.py
+from mpbax.core.engine import Engine
+
+# Config with DA_Net model - all params in config!
 config = {
     'seed': 42,
     'max_loops': 5,
-    'n_initial': 20,
     'checkpoint': {'dir': 'checkpoints_danet', 'freq': 1, 'resume_from': None},
-    'oracles': [{'name': 'my_obj', 'input_dim': 2}],
+    'oracles': [
+        {
+            'name': 'my_obj',
+            'input_dim': 2,
+            'n_initial': 20,
+            'function': {
+                'class': 'myproject.oracles.my_oracle'
+            },
+            'model': {
+                'class': 'DANetModel',  # Built-in model
+                'params': {
+                    'epochs': 150,        # Initial training epochs
+                    'epochs_iter': 10,    # Finetuning epochs (NEW!)
+                    'n_neur': 800,
+                    'dropout': 0.1,
+                    'lr': 1e-4,
+                    'weight_new_data': 10.0,
+                    'early_stop_patience': 10
+                }
+            }
+        }
+    ],
     'model': {
         'mode': 'finetune',  # Preserve normalization across loops
         'checkpoint_mode': 'both'  # Save best and final models
@@ -468,44 +518,31 @@ config = {
     }
 }
 
-# Run optimization
-engine = Engine(
-    config=config,
-    fn_oracles=[my_oracle],
-    model_class=DANetModel,  # Use DA_Net plugin
-    algorithm=None
-)
+# NEW API: Engine takes only config!
+engine = Engine(config)
 engine.run()
 ```
 
 **Hyperparameters:**
 
-You can customize DA_Net by passing parameters to the model constructor:
+All DA_Net hyperparameters are specified in the config under `oracles[i].model.params`:
 
-```python
-from mpbax.plugins.models import DANetModel
-
-# Custom DA_Net configuration
-model_class = lambda input_dim: DANetModel(
-    input_dim=input_dim,
-    n_neur=800,           # Neurons per hidden layer
-    dropout=0.1,          # Dropout probability
-    lr=1e-4,              # Learning rate
-    epochs=150,           # Training epochs
-    model_type='split',   # Forward mode: 'fc', 'split', 'sine'
-    test_ratio=0.05,      # Train/test split ratio
-    batch_size=1000,      # Training batch size
-    early_stop_patience=10,  # Early stopping patience
-    device=None,          # 'cuda', 'cpu', or None for auto
-    weight_new_data=10.0  # Weight for recent loop data (default: 10.0)
-)
-
-engine = Engine(
-    config=config,
-    fn_oracles=[my_oracle],
-    model_class=model_class,
-    algorithm=None
-)
+```yaml
+model:
+  class: 'DANetModel'
+  params:
+    epochs: 150              # Training epochs for initial loop (pretraining)
+    epochs_iter: 10          # Training epochs for later loops (finetuning) - NEW!
+    n_neur: 800              # Neurons per hidden layer
+    dropout: 0.1             # Dropout probability
+    lr: 1e-4                 # Learning rate
+    model_type: 'split'      # Forward mode: 'fc', 'split', 'sine'
+    test_ratio: 0.05         # Train/test split ratio
+    batch_size: 1000         # Training batch size
+    early_stop_patience: 10  # Early stopping patience (None = disabled)
+    device: null             # 'cuda', 'cpu', or null for auto-detect
+    weight_new_data: 10.0    # Weight multiplier for recent loop data
+    verbose: true            # Print training progress
 ```
 
 **Forward Modes:**

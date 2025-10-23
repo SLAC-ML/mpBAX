@@ -5,24 +5,17 @@ This example shows:
 1. Using DANetModel plugin with PyTorch neural network
 2. Automatic input normalization (preserved across loops)
 3. Finetuning mode with best model tracking
-4. GPU acceleration when available
-5. Early stopping for efficient training
+4. Variable epochs (150 initial, 10 for finetuning)
+5. Sample weighting for recent data
+6. GPU acceleration when available
+7. Early stopping for efficient training
+
+This example uses the pure config-first API.
 """
 
 import numpy as np
 
 from mpbax.core.engine import Engine
-from mpbax.plugins.models import DANetModel
-
-
-# Oracle function - simple quadratic
-def oracle_quadratic(X: np.ndarray) -> np.ndarray:
-    """Simple quadratic oracle: f(x1, x2) = (x1-0.3)^2 + (x2-0.7)^2
-
-    Optimum at x = [0.3, 0.7] with f(x) = 0
-    """
-    Y = (X[:, 0] - 0.3)**2 + (X[:, 1] - 0.7)**2
-    return Y.reshape(-1, 1)
 
 
 def main():
@@ -44,18 +37,39 @@ def main():
         print("This example requires PyTorch to run.")
         return
 
-    # Config with DA_Net model
+    # NEW config structure - everything specified here!
     config = {
         'seed': 42,
         'max_loops': 5,
-        'n_initial': 20,
         'checkpoint': {
             'dir': 'checkpoints_danet',
             'freq': 1,
             'resume_from': None
         },
         'oracles': [
-            {'name': 'quadratic', 'input_dim': 2}
+            {
+                'name': 'quadratic',
+                'input_dim': 2,
+                'n_initial': 20,  # Per-oracle n_initial
+                'function': {
+                    'class': 'mpbax.examples.oracles.oracle_quadratic',
+                    'params': {}
+                },
+                'generate': None,  # Default uniform [0, 1]^d
+                'model': {
+                    'class': 'DANetModel',
+                    'params': {
+                        'epochs': 150,  # Initial training
+                        'epochs_iter': 10,  # Finetuning iterations
+                        'n_neur': 800,
+                        'dropout': 0.1,
+                        'lr': 1e-4,
+                        'weight_new_data': 10.0,  # Weight recent data 10x
+                        'early_stop_patience': 10,
+                        'verbose': True
+                    }
+                }
+            }
         ],
         'model': {
             'mode': 'finetune',  # Enable finetuning - preserve normalization
@@ -75,17 +89,15 @@ def main():
     print(f"  Model: DANetModel (PyTorch neural network)")
     print(f"  Model mode: {config['model']['mode']} (preserves normalization)")
     print(f"  Checkpoint mode: {config['model']['checkpoint_mode']}")
+    print(f"  Epochs: {config['oracles'][0]['model']['params']['epochs']} initial, "
+          f"{config['oracles'][0]['model']['params']['epochs_iter']} per iteration")
+    print(f"  Sample weighting: {config['oracles'][0]['model']['params']['weight_new_data']}x for recent data")
     print(f"  Max loops: {config['max_loops']}")
-    print(f"  Initial samples: {config['n_initial']}")
+    print(f"  Initial samples: {config['oracles'][0]['n_initial']}")
     print("=" * 70)
 
-    # Run optimization
-    engine = Engine(
-        config=config,
-        fn_oracles=[oracle_quadratic],
-        model_class=DANetModel,
-        algorithm=None  # Auto-instantiate from config
-    )
+    # NEW API: Engine takes only config!
+    engine = Engine(config=config)
 
     engine.run()
 

@@ -367,6 +367,7 @@ class DANetModel(BaseModel):
                  dropout: float = 0.1,
                  lr: float = 1e-4,
                  epochs: int = 150,
+                 epochs_iter: int = 10,
                  model_type: str = 'split',
                  out_scale: float = 1.0,
                  test_ratio: float = 0.05,
@@ -382,7 +383,8 @@ class DANetModel(BaseModel):
             n_neur: Number of neurons in hidden layers
             dropout: Dropout probability
             lr: Learning rate
-            epochs: Number of training epochs
+            epochs: Number of training epochs for initial training (pretraining phase)
+            epochs_iter: Number of training epochs for later iterations (finetuning phase)
             model_type: Forward mode - 'fc', 'split', or 'sine'
             out_scale: Output scaling factor
             test_ratio: Fraction of data for test set
@@ -406,6 +408,7 @@ class DANetModel(BaseModel):
         self.dropout = dropout
         self.lr = lr
         self.epochs = epochs
+        self.epochs_iter = epochs_iter
         self.model_type = model_type
         self.out_scale = out_scale
         self.test_ratio = test_ratio
@@ -522,9 +525,15 @@ class DANetModel(BaseModel):
             if self.verbose:
                 print(f"  [DANetModel] Initialized network on {self.device}")
 
-        # Train network
-        if self.verbose:
-            print(f"  [DANetModel] Training for {self.epochs} epochs...")
+            # First training: use full epochs
+            epochs_to_use = self.epochs
+            if self.verbose:
+                print(f"  [DANetModel] Initial training for {epochs_to_use} epochs...")
+        else:
+            # Later training: use iteration epochs
+            epochs_to_use = self.epochs_iter
+            if self.verbose:
+                print(f"  [DANetModel] Finetuning for {epochs_to_use} epochs...")
 
         # Use temporary files for best/final model during training
         import tempfile
@@ -537,7 +546,7 @@ class DANetModel(BaseModel):
                 trainloader,
                 testloader,
                 lr=self.lr,
-                epochs=self.epochs,
+                epochs=epochs_to_use,
                 savefile=savefile,
                 final_savefile=None,
                 device=self.device,
@@ -667,6 +676,7 @@ class DANetModel(BaseModel):
             dropout=self.dropout,
             lr=self.lr,
             epochs=self.epochs,
+            epochs_iter=self.epochs_iter,
             model_type=self.model_type,
             out_scale=self.out_scale,
             test_ratio=self.test_ratio,
@@ -674,7 +684,8 @@ class DANetModel(BaseModel):
             early_stop_patience=self.early_stop_patience,
             random_state=self.random_state,
             device=str(self.device),
-            verbose=False
+            verbose=False,
+            weight_new_data=self.weight_new_data
         )
 
         # Copy normalization params
