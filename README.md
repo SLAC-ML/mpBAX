@@ -80,6 +80,43 @@ See [examples/](examples/) for more examples.
 
 ## Key Concepts
 
+### Oracle Function Requirements
+
+Oracle functions are the core of mpBAX - they represent your expensive simulation or objective function.
+
+**Shape Convention:**
+- **Input X**: Shape `(n, d)` where `n` = number of samples, `d` = input dimension
+- **Output Y**: Shape `(n, k)` where `k ≥ 1` (number of outputs per sample)
+
+**Example - Single Output:**
+```python
+def my_oracle(X: np.ndarray) -> np.ndarray:
+    """
+    Args:
+        X: Input with shape (n, d)
+    Returns:
+        Y: Output with shape (n, 1)
+    """
+    return np.sum(X**2, axis=1, keepdims=True)  # Shape (n, 1)
+```
+
+**Example - Multi-Output:**
+```python
+def multi_output_oracle(X: np.ndarray) -> np.ndarray:
+    """
+    Args:
+        X: Input with shape (n, d)
+    Returns:
+        Y: Output with shape (n, 3)  # Three outputs per input
+    """
+    y1 = np.sum(X**2, axis=1, keepdims=True)
+    y2 = np.sum(X, axis=1, keepdims=True)
+    y3 = np.max(X, axis=1, keepdims=True)
+    return np.hstack([y1, y2, y3])  # Shape (n, 3)
+```
+
+**Important:** Always use `keepdims=True` or reshape to ensure Y is 2D, never 1D.
+
 ### Config-First Architecture
 
 Everything is specified in a config dict/YAML:
