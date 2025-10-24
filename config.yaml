@@ -1,13 +1,18 @@
-# mpBAX Configuration Template
+# mpBAX v2.0 Configuration Template
+#
+# This config demonstrates the config-first API where everything
+# (oracle functions, models, generators, algorithm) is specified in config.
+#
+# Usage:
+#   from mpbax.core.engine import Engine
+#   engine = Engine(config='config.yaml')  # or pass dict directly
+#   engine.run()
 
 # Random seed for reproducibility
 seed: 42
 
 # Maximum number of optimization loops
 max_loops: 10
-
-# Number of initial samples to generate
-n_initial: 20
 
 # Checkpoint settings
 checkpoint:
@@ -17,45 +22,118 @@ checkpoint:
   # Frequency of checkpointing (1 = every loop, 2 = every 2 loops, etc.)
   freq: 1
 
-  # Resume from checkpoint (null = start fresh, "latest" = resume from latest, or specify loop number like 5)
+  # Resume from checkpoint (null = start fresh, "latest" = resume from latest, or specify loop number)
   resume_from: null
 
-# Model training settings
+# Model training settings (global, applies to all oracles unless overridden)
 model:
-  # Training mode: "retrain" (train from scratch each loop) or "finetune" (continue from previous model)
-  # - retrain: Creates new model each loop, trains on all accumulated data
+  # Training mode: "retrain" or "finetune"
+  # - retrain: Creates fresh model each loop, trains on all accumulated data
   # - finetune: Reuses model from previous loop, continues training
-  #   (useful for neural networks, preserves normalization params, etc.)
+  #   (preserves normalization params, network weights, etc.)
   mode: "retrain"
 
-  # Checkpoint mode: which model to save
+  # Checkpoint mode: which model(s) to save
   # - "final": Save model after training completes (used for resumption)
-  # - "best": Save best model from training (if model tracks it via get_best_model_snapshot())
+  # - "best": Save best model if tracked via get_best_model_snapshot()
   # - "both": Save both final and best models
   checkpoint_mode: "final"
 
-# Oracle configuration (for fn_generate defaults and validation)
+# Oracle configurations (list - one per oracle)
 oracles:
-  - name: "oracle_1"
-    # Input dimension for this oracle's simulation
-    input_dim: 2
+  - name: "my_objective"
+    input_dim: 4
+    n_initial: 20  # Number of initial samples for this oracle
 
-  # Add more oracles for multi-oracle optimization
-  # - name: "oracle_2"
-  #   input_dim: 3
+    # Oracle function configuration
+    # When using YAML, specify import path as string:
+    function:
+      class: 'myproject.oracles.my_oracle_function'
+      params: {}  # Optional parameters for factory functions
 
-# Algorithm configuration (auto-instantiation)
+    # Optional: Custom generator function
+    # null = default uniform [0,1]^d generator
+    generate: null
+    # OR specify custom generator:
+    # generate:
+    #   class: 'myproject.generators.lhs_generator'
+    #   params:
+    #     criterion: 'maximin'
+
+    # Model configuration
+    model:
+      class: 'DummyModel'  # Built-in: 'DummyModel' or 'DANetModel'
+      params: {}           # Or: 'myproject.models.MyModel'
+
+  # Example: Second oracle for multi-objective optimization
+  # - name: "my_constraint"
+  #   input_dim: 4
+  #   n_initial: 20
+  #
+  #   function:
+  #     class: 'myproject.oracles.my_constraint_function'
+  #     params: {}
+  #
+  #   generate: null
+  #
+  #   model:
+  #     class: 'DummyModel'
+  #     params: {}
+
+# Algorithm configuration
 algorithm:
-  # Algorithm class name: "RandomSampling", "GreedySampling", or custom "module.ClassName"
-  class: "GreedySampling"
+  # Built-in: 'RandomSampling', 'GreedySampling'
+  # Or custom: 'myproject.algorithms.MyAlgorithm'
+  class: 'GreedySampling'
 
   # Parameters for algorithm constructor
   params:
-    # Must match oracle dimensions
-    input_dims: [2]
+    # Must match oracle input dimensions
+    input_dims: [4]  # [4, 4] for multi-oracle example above
 
     # Number of candidates to propose per oracle per loop
     n_propose: 10
 
-    # Additional params specific to algorithm (e.g., n_candidates for GreedySampling)
+    # Algorithm-specific params (GreedySampling needs n_candidates)
     n_candidates: 1000
+
+
+# ============================================================================
+# ADVANCED EXAMPLE: DANetModel with Finetuning
+# ============================================================================
+#
+# Uncomment to use neural network model with sample weighting:
+#
+# model:
+#   mode: "finetune"      # Preserve normalization across loops
+#   checkpoint_mode: "both"  # Save both best and final models
+#
+# oracles:
+#   - name: "neural_net_objective"
+#     input_dim: 6
+#     n_initial: 30
+#
+#     function:
+#       class: 'myproject.oracles.expensive_simulation'
+#       params: {}
+#
+#     generate: null
+#
+#     model:
+#       class: 'DANetModel'  # Requires PyTorch
+#       params:
+#         epochs: 200         # Initial training epochs
+#         epochs_iter: 20     # Finetuning epochs per loop
+#         n_neur: 800         # Hidden layer size
+#         dropout: 0.1        # Dropout rate
+#         lr: 1e-4            # Learning rate
+#         weight_new_data: 10.0  # Weight recent data 10x higher
+#         early_stop_patience: 15
+#         verbose: true
+#
+# algorithm:
+#   class: 'GreedySampling'
+#   params:
+#     input_dims: [6]
+#     n_propose: 15
+#     n_candidates: 2000
