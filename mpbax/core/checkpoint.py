@@ -4,8 +4,9 @@ import os
 import pickle
 import re
 import yaml
+import inspect
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 from mpbax.core.data_handler import DataHandler
 from mpbax.core.model import BaseModel
@@ -34,6 +35,45 @@ def _sanitize_oracle_name(name: str) -> str:
     # Strip leading/trailing underscores
     sanitized = sanitized.strip('_')
     return sanitized
+
+
+def _make_yaml_serializable(obj: Any) -> Any:
+    """Convert config with class/function instances to YAML-serializable format.
+
+    Recursively converts class and function instances to their module path strings.
+    This allows instance-based configs to be saved to YAML without Python-specific tags.
+
+    Args:
+        obj: Config object (dict, list, or value)
+
+    Returns:
+        YAML-serializable version of the object
+
+    Example:
+        >>> from mpbax.core.model import DummyModel
+        >>> config = {'model': {'class': DummyModel}}
+        >>> _make_yaml_serializable(config)
+        {'model': {'class': 'mpbax.core.model.DummyModel'}}
+    """
+    if isinstance(obj, dict):
+        # Recursively handle dict
+        return {key: _make_yaml_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        # Recursively handle list
+        return [_make_yaml_serializable(item) for item in obj]
+    elif inspect.isclass(obj) or inspect.isfunction(obj) or inspect.ismethod(obj):
+        # Convert class/function to module path string
+        module = inspect.getmodule(obj)
+        if module is None or module.__name__ == '__main__':
+            # Can't import from __main__, use placeholder
+            name = getattr(obj, '__name__', 'unknown')
+            return f'<local:{name}>'
+        else:
+            # Return full module path
+            return f'{module.__name__}.{obj.__name__}'
+    else:
+        # Return as-is (strings, numbers, None, etc.)
+        return obj
 
 
 class CheckpointManager:
@@ -83,10 +123,15 @@ class CheckpointManager:
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         # Save config (only once)
+        # Convert instance-based config to YAML-serializable format
         config_path = self.checkpoint_dir / "config.yaml"
         if not config_path.exists():
+            config_serializable = _make_yaml_serializable(config)
             with open(config_path, 'w') as f:
-                yaml.dump(config, f)
+                # Add header comment for local functions
+                f.write("# Note: Functions/classes from __main__ are marked as <local:name>\n")
+                f.write("# and cannot be re-imported. Pass config with instances when resuming.\n\n")
+                yaml.dump(config_serializable, f)
 
         # Save state
         state = {
