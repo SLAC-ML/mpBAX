@@ -311,28 +311,35 @@ class Engine:
     def _instantiate_oracle_functions(self) -> List[Callable]:
         """Instantiate oracle functions from config.
 
-        For each oracle, reads function.class (import path) and function.params.
-        Imports the function/factory and instantiates with params.
+        For each oracle, reads function.class (import path string OR function instance)
+        and function.params. Supports both:
+        - String: imports function/factory from module path
+        - Instance: uses the function/factory directly
 
         Returns:
             List of oracle functions with signature fn(X) -> Y
 
         Raises:
-            ValueError: If function config is invalid or import fails
+            ValueError: If function config is invalid or import/instantiation fails
         """
         fn_oracles = []
 
         for i, oracle_config in enumerate(self.oracle_configs):
             fn_config = oracle_config['function']
-            fn_class_name = fn_config['class']
+            fn_class_or_instance = fn_config['class']
             fn_params = fn_config.get('params', {})
 
             try:
-                # Import function/factory
-                module_path, obj_name = fn_class_name.rsplit('.', 1)
-                import importlib
-                module = importlib.import_module(module_path)
-                fn_or_factory = getattr(module, obj_name)
+                # Support both string (import path) and direct instance
+                if isinstance(fn_class_or_instance, str):
+                    # String: import function/factory from module path
+                    module_path, obj_name = fn_class_or_instance.rsplit('.', 1)
+                    import importlib
+                    module = importlib.import_module(module_path)
+                    fn_or_factory = getattr(module, obj_name)
+                else:
+                    # Instance: use the function/factory directly
+                    fn_or_factory = fn_class_or_instance
 
                 # If params provided, call as factory; otherwise use directly
                 if fn_params:
@@ -343,8 +350,14 @@ class Engine:
                 fn_oracles.append(fn_oracle)
 
             except (ValueError, ImportError, AttributeError, TypeError) as e:
+                # Generate appropriate error message
+                if isinstance(fn_class_or_instance, str):
+                    desc = f"string '{fn_class_or_instance}'"
+                else:
+                    desc = f"instance {fn_class_or_instance}"
+
                 raise ValueError(
-                    f"Failed to instantiate oracle function '{fn_class_name}' "
+                    f"Failed to instantiate oracle function from {desc} "
                     f"for oracle {i} ('{oracle_config['name']}'): {e}"
                 )
 
@@ -354,13 +367,16 @@ class Engine:
         """Instantiate generator functions from oracle configs.
 
         For each oracle, reads optional generate config.
-        Returns list of generator functions.
+        Supports both:
+        - String: imports generator/factory from module path
+        - Instance: uses the generator/factory directly
+        - None: uses default uniform random generator
 
         Returns:
             List of generator functions with signature fn(n_samples, input_dim) -> X
 
         Raises:
-            ValueError: If generator config is invalid or import fails
+            ValueError: If generator config is invalid or import/instantiation fails
         """
         fn_generate_list = []
 
@@ -371,16 +387,21 @@ class Engine:
                 # Use default generator
                 fn_generate_list.append(self._default_generate)
             else:
-                # Import custom generator
-                gen_class_name = gen_config['class']
+                # Import custom generator or use instance
+                gen_class_or_instance = gen_config['class']
                 gen_params = gen_config.get('params', {})
 
                 try:
-                    # Import generator/factory
-                    module_path, obj_name = gen_class_name.rsplit('.', 1)
-                    import importlib
-                    module = importlib.import_module(module_path)
-                    gen_or_factory = getattr(module, obj_name)
+                    # Support both string (import path) and direct instance
+                    if isinstance(gen_class_or_instance, str):
+                        # String: import generator/factory from module path
+                        module_path, obj_name = gen_class_or_instance.rsplit('.', 1)
+                        import importlib
+                        module = importlib.import_module(module_path)
+                        gen_or_factory = getattr(module, obj_name)
+                    else:
+                        # Instance: use the generator/factory directly
+                        gen_or_factory = gen_class_or_instance
 
                     # If params provided, call as factory; otherwise use directly
                     if gen_params:
@@ -391,8 +412,14 @@ class Engine:
                     fn_generate_list.append(fn_generate)
 
                 except (ValueError, ImportError, AttributeError, TypeError) as e:
+                    # Generate appropriate error message
+                    if isinstance(gen_class_or_instance, str):
+                        desc = f"string '{gen_class_or_instance}'"
+                    else:
+                        desc = f"instance {gen_class_or_instance}"
+
                     raise ValueError(
-                        f"Failed to instantiate generator '{gen_class_name}' "
+                        f"Failed to instantiate generator from {desc} "
                         f"for oracle {i} ('{oracle_config['name']}'): {e}"
                     )
 
@@ -402,48 +429,61 @@ class Engine:
         """Instantiate models from oracle configs.
 
         For each oracle, reads model.class and model.params.
-        Handles built-in models and custom models via import path.
+        Supports both:
+        - String: handles built-in models or imports from module path
+        - Class: uses the model class directly
 
         Returns:
             List of model instances
 
         Raises:
-            ValueError: If model config is invalid or import fails
+            ValueError: If model config is invalid or import/instantiation fails
         """
         models = []
 
         for i, oracle_config in enumerate(self.oracle_configs):
             model_config = oracle_config['model']
-            model_class_name = model_config['class']
+            model_class_or_name = model_config['class']
             model_params = model_config.get('params', {})
 
-            # Handle built-in models
-            if model_class_name in ['DummyModel']:
-                from mpbax.core.model import DummyModel
-                model_class = DummyModel
-            elif model_class_name in ['DANetModel']:
-                from mpbax.plugins.models.da_net_model import DANetModel
-                model_class = DANetModel
+            # Support both string (import path) and direct class
+            if isinstance(model_class_or_name, str):
+                # String: handle built-in models or import custom
+                if model_class_or_name in ['DummyModel']:
+                    from mpbax.core.model import DummyModel
+                    model_class = DummyModel
+                elif model_class_or_name in ['DANetModel']:
+                    from mpbax.plugins.models.da_net_model import DANetModel
+                    model_class = DANetModel
+                else:
+                    # Import custom model via full path
+                    try:
+                        module_path, class_name = model_class_or_name.rsplit('.', 1)
+                        import importlib
+                        module = importlib.import_module(module_path)
+                        model_class = getattr(module, class_name)
+                    except (ValueError, ImportError, AttributeError) as e:
+                        raise ValueError(
+                            f"Failed to import model class '{model_class_or_name}' "
+                            f"for oracle {i} ('{oracle_config['name']}'): {e}"
+                        )
             else:
-                # Import custom model via full path
-                try:
-                    module_path, class_name = model_class_name.rsplit('.', 1)
-                    import importlib
-                    module = importlib.import_module(module_path)
-                    model_class = getattr(module, class_name)
-                except (ValueError, ImportError, AttributeError) as e:
-                    raise ValueError(
-                        f"Failed to import model class '{model_class_name}' "
-                        f"for oracle {i} ('{oracle_config['name']}'): {e}"
-                    )
+                # Class instance: use directly
+                model_class = model_class_or_name
 
             # Instantiate model with input_dim and params
             try:
                 model = model_class(input_dim=oracle_config['input_dim'], **model_params)
                 models.append(model)
             except TypeError as e:
+                # Generate appropriate error message
+                if isinstance(model_class_or_name, str):
+                    desc = f"'{model_class_or_name}'"
+                else:
+                    desc = f"{model_class_or_name}"
+
                 raise ValueError(
-                    f"Failed to instantiate {model_class_name} with params {model_params} "
+                    f"Failed to instantiate model {desc} with params {model_params} "
                     f"for oracle {i} ('{oracle_config['name']}'): {e}"
                 )
 
@@ -452,51 +492,66 @@ class Engine:
     def _instantiate_algorithm(self) -> BaseAlgorithm:
         """Instantiate algorithm from config.
 
+        Supports both:
+        - String: handles built-in algorithms or imports from module path
+        - Class: uses the algorithm class directly
+
         Returns:
             Instantiated algorithm
 
         Raises:
-            ValueError: If algorithm config is invalid or class not found
+            ValueError: If algorithm config is invalid or class not found/instantiation fails
         """
         if 'algorithm' not in self.config:
-            raise ValueError("Config must contain 'algorithm' section when algorithm=None")
+            raise ValueError("Config must contain 'algorithm' section")
 
         algo_config = self.config['algorithm']
-        algo_class_name = algo_config.get('class')
+        algo_class_or_name = algo_config.get('class')
         algo_params = algo_config.get('params', {})
 
-        if not algo_class_name:
+        if not algo_class_or_name:
             raise ValueError("Algorithm config must specify 'class'")
 
-        # Handle built-in algorithms
-        if algo_class_name in ['RandomSampling', 'GreedySampling']:
-            from mpbax.core.algorithm import RandomSampling, GreedySampling
+        # Support both string (import path) and direct class
+        if isinstance(algo_class_or_name, str):
+            # String: handle built-in algorithms or import custom
+            if algo_class_or_name in ['RandomSampling', 'GreedySampling']:
+                from mpbax.core.algorithm import RandomSampling, GreedySampling
 
-            if algo_class_name == 'RandomSampling':
-                algo_class = RandomSampling
+                if algo_class_or_name == 'RandomSampling':
+                    algo_class = RandomSampling
+                else:
+                    algo_class = GreedySampling
+
+            # Handle custom algorithms via import path
             else:
-                algo_class = GreedySampling
-
-        # Handle custom algorithms via import path
+                # Import custom class from module path
+                # e.g., "mymodule.MyAlgorithm"
+                try:
+                    module_path, class_name = algo_class_or_name.rsplit('.', 1)
+                    import importlib
+                    module = importlib.import_module(module_path)
+                    algo_class = getattr(module, class_name)
+                except (ValueError, ImportError, AttributeError) as e:
+                    raise ValueError(
+                        f"Failed to import algorithm class '{algo_class_or_name}': {e}"
+                    )
         else:
-            # Import custom class from module path
-            # e.g., "mymodule.MyAlgorithm"
-            try:
-                module_path, class_name = algo_class_name.rsplit('.', 1)
-                import importlib
-                module = importlib.import_module(module_path)
-                algo_class = getattr(module, class_name)
-            except (ValueError, ImportError, AttributeError) as e:
-                raise ValueError(
-                    f"Failed to import algorithm class '{algo_class_name}': {e}"
-                )
+            # Class instance: use directly
+            algo_class = algo_class_or_name
 
         # Instantiate algorithm with params
         try:
             algorithm = algo_class(**algo_params)
         except TypeError as e:
+            # Generate appropriate error message
+            if isinstance(algo_class_or_name, str):
+                desc = f"'{algo_class_or_name}'"
+            else:
+                desc = f"{algo_class_or_name}"
+
             raise ValueError(
-                f"Failed to instantiate {algo_class_name} with params {algo_params}: {e}"
+                f"Failed to instantiate algorithm {desc} with params {algo_params}: {e}"
             )
 
         return algorithm

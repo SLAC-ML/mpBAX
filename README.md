@@ -26,61 +26,95 @@ export PYTHONPATH=/path/to/mpBAX:$PYTHONPATH
 
 ## Quick Start
 
-### Step 1: Define Oracle Functions
+### Option 1: Single-File Example (Python API)
 
-Oracle functions must be importable from modules (for reproducibility):
+For simple examples, define everything in one file using direct instances:
+
+```python
+import numpy as np
+from mpbax.core.engine import Engine
+from mpbax.core.model import DummyModel
+from mpbax.core.algorithm import GreedySampling
+
+# Define oracle function directly in this file
+def my_oracle(X: np.ndarray) -> np.ndarray:
+    """X has shape (n, d), returns Y with shape (n, k) where k >= 1"""
+    return np.sum(X**2, axis=1, keepdims=True)
+
+# Pass function and class instances directly in config
+config = {
+    'seed': 42,
+    'max_loops': 10,
+    'checkpoint': {'dir': 'checkpoints', 'freq': 1},
+    'oracles': [{
+        'name': 'my_objective',
+        'input_dim': 2,
+        'n_initial': 20,
+        'function': {
+            'class': my_oracle,  # Pass function directly!
+        },
+        'model': {
+            'class': DummyModel,  # Pass class directly!
+        }
+    }],
+    'algorithm': {
+        'class': GreedySampling,  # Pass class directly!
+        'params': {'input_dims': [2], 'n_propose': 10, 'n_candidates': 1000}
+    }
+}
+
+engine = Engine(config)
+engine.run()
+```
+
+### Option 2: Modular Approach (YAML + Python)
+
+For larger projects, define oracle functions in separate modules and reference via import paths:
 
 ```python
 # myproject/oracles.py
 import numpy as np
 
 def my_oracle(X: np.ndarray) -> np.ndarray:
-    """X has shape (n, d), returns Y with shape (n, k) where k >= 1"""
     return np.sum(X**2, axis=1, keepdims=True)
 ```
 
-### Step 2: Create Config
+```yaml
+# myproject/config.yaml
+seed: 42
+max_loops: 10
+checkpoint:
+  dir: 'checkpoints'
+  freq: 1
 
-**NEW in v2.0**: Everything is specified in config! This includes oracle functions, models, and generators.
+oracles:
+  - name: 'my_objective'
+    input_dim: 2
+    n_initial: 20
+    function:
+      class: 'myproject.oracles.my_oracle'  # Import path string
+    model:
+      class: 'DummyModel'  # Built-in model name
+
+algorithm:
+  class: 'GreedySampling'
+  params:
+    input_dims: [2]
+    n_propose: 10
+    n_candidates: 1000
+```
 
 ```python
 # myproject/run.py
 from mpbax.core.engine import Engine
 
-config = {
-    'seed': 42,
-    'max_loops': 10,
-    'checkpoint': {'dir': 'checkpoints', 'freq': 1, 'resume_from': None},
-    'oracles': [
-        {
-            'name': 'my_objective',
-            'input_dim': 2,
-            'n_initial': 20,  # Per-oracle initial samples
-            'function': {
-                'class': 'myproject.oracles.my_oracle',  # Import path
-                'params': {}  # Optional params for factory functions
-            },
-            'generate': None,  # Optional: custom generator (None = uniform [0,1]^d)
-            'model': {
-                'class': 'DummyModel',  # Built-in or full import path
-                'params': {}
-            }
-        }
-    ],
-    'algorithm': {
-        'class': 'GreedySampling',
-        'params': {
-            'input_dims': [2],
-            'n_propose': 10,
-            'n_candidates': 1000
-        }
-    }
-}
-
-# NEW API: Engine takes only config!
-engine = Engine(config)
+engine = Engine('config.yaml')  # Load from YAML file
 engine.run()
 ```
+
+**Key Differences:**
+- **Option 1 (Instances)**: Best for simple examples, rapid prototyping, single-file scripts
+- **Option 2 (Strings)**: Best for large projects, YAML configs, reproducibility from config files
 
 ### Multi-Oracle Optimization
 
