@@ -340,7 +340,7 @@ def train_NN_re(model, trainloader, testloader, lr=1e-4, epochs=150,
 
     # Load best model if saved
     if savefile:
-        model.load_state_dict(torch.load(savefile, map_location=device))
+        model.load_state_dict(torch.load(savefile, map_location=device, weights_only=True))
         if verbose:
             print(f"  Loaded best model with test_loss={best_test_loss:.6f}")
 
@@ -559,7 +559,7 @@ class DANetModel(BaseModel):
 
             # Save best model state for get_best_model_snapshot()
             if os.path.exists(savefile):
-                self.best_network_state = torch.load(savefile, map_location='cpu')
+                self.best_network_state = torch.load(savefile, map_location='cpu', weights_only=True)
                 # Also compute best test loss
                 self.network.eval()
                 test_loss = 0.0
