@@ -400,20 +400,3 @@ config['oracles'] = [
     {'name': 'obj2', 'input_dim': 3, ...}
 ]
 ```
-
-## Citation
-
-If you use mpBAX in your research, please cite:
-
-```
-@software{mpbax2024,
-  title = {mpBAX: Multipoint Bayesian Algorithm Execution},
-  author = {Your Name},
-  year = {2024},
-  url = {https://github.com/yourusername/mpBAX}
-}
-```
-
-## License
-
-[Your License Here]
