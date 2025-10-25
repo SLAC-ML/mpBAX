@@ -108,6 +108,17 @@ oracles:
 
 See [examples/](examples/) for more examples.
 
+## Examples
+
+See [examples/](examples/) directory:
+
+- `01_basic_optimization.py` - Simple single-objective example
+- `02_multi_oracle.py` - Multi-objective optimization
+- `03_multi_output.py` - Oracle with multiple outputs
+- `04_checkpointing.py` - Resume and rollback
+- `05_custom_model.py` - Implementing custom models
+- `06_danet_model.py` - Using DANetModel plugin
+
 ## Key Concepts
 
 ### Oracle Function Requirements
@@ -164,6 +175,22 @@ Each oracle operates independently with its own:
 - Data storage and checkpoints
 
 Algorithms receive predictions from all models and propose candidates for each oracle.
+
+#### Multi-Output vs Multi-Oracle
+
+**Multi-Output**: Single oracle returns multiple values
+```python
+def oracle(X):  # Shape (n, d)
+    return Y    # Shape (n, 3) - three outputs per input
+```
+
+**Multi-Oracle**: Multiple independent oracles
+```python
+config['oracles'] = [
+    {'name': 'obj1', 'input_dim': 2, ...},
+    {'name': 'obj2', 'input_dim': 3, ...}
+]
+```
 
 ### Checkpointing System
 
@@ -440,30 +467,3 @@ See [mpbax/plugins/models/README.md](mpbax/plugins/models/README.md) for full do
 2. Inherit from appropriate base class
 3. Implement required methods
 4. Document in plugin README
-
-## Examples
-
-See [examples/](examples/) directory:
-
-- `01_basic_optimization.py` - Simple single-objective example
-- `02_multi_oracle.py` - Multi-objective optimization
-- `03_multi_output.py` - Oracle with multiple outputs
-- `04_checkpointing.py` - Resume and rollback
-- `05_custom_model.py` - Implementing custom models
-- `06_danet_model.py` - Using DANetModel plugin
-
-## Multi-Output vs Multi-Oracle
-
-**Multi-Output**: Single oracle returns multiple values
-```python
-def oracle(X):  # Shape (n, d)
-    return Y    # Shape (n, 3) - three outputs per input
-```
-
-**Multi-Oracle**: Multiple independent oracles
-```python
-config['oracles'] = [
-    {'name': 'obj1', 'input_dim': 2, ...},
-    {'name': 'obj2', 'input_dim': 3, ...}
-]
-```
