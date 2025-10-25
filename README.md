@@ -214,6 +214,54 @@ checkpoints/
 
 ## Configuration Reference
 
+### Complete Example
+
+Here's a complete config demonstrating all available options:
+
+```yaml
+# Top-level settings
+seed: 42
+max_loops: 10
+
+# Checkpointing configuration
+checkpoint:
+  dir: 'checkpoints'
+  freq: 1
+  resume_from: null  # or 'latest' or loop number
+
+# Global model training settings
+model:
+  mode: 'retrain'  # 'retrain' or 'finetune'
+  checkpoint_mode: 'final'  # 'final', 'best', or 'both'
+
+# Oracle configurations (list - one per oracle)
+oracles:
+  - name: 'my_objective'
+    input_dim: 4
+    n_initial: 20
+
+    # Oracle function
+    function:
+      class: 'myproject.oracles.my_oracle'  # or direct instance
+      params: {}
+
+    # Optional: Custom generator (null = uniform [0,1]^d)
+    generate: null
+
+    # Model for this oracle
+    model:
+      class: 'DummyModel'  # or 'DANetModel' or custom
+      params: {}
+
+# Algorithm configuration
+algorithm:
+  class: 'GreedySampling'
+  params:
+    input_dims: [4]
+    n_propose: 10
+    n_candidates: 1000
+```
+
 ### Top-Level Config
 
 | Field | Type | Description |
@@ -233,12 +281,48 @@ checkpoints/
 | `freq` | int | 1 | Save frequency (1=every loop) |
 | `resume_from` | str/int/null | null | Resume point ('latest', loop number, or null) |
 
+**Usage examples:**
+
+Resume from latest checkpoint:
+```python
+config['checkpoint']['resume_from'] = 'latest'
+```
+
+Resume from specific loop:
+```python
+config['checkpoint']['resume_from'] = 5
+```
+
+Rollback to previous checkpoint:
+```python
+from mpbax.core.checkpoint import CheckpointManager
+manager = CheckpointManager('checkpoints')
+manager.delete_checkpoints_after(loop=3)  # Delete loops 4+
+```
+
 ### Model Config (Global)
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `mode` | str | 'retrain' | 'retrain' or 'finetune' |
-| `checkpoint_mode` | str | 'final' | 'final', 'best', or 'both' |
+| `mode` | str | 'retrain' | Training mode: 'retrain' or 'finetune' |
+| `checkpoint_mode` | str | 'final' | Model checkpoint: 'final', 'best', or 'both' |
+
+**Training Modes:**
+
+**Retrain** (default) - Creates fresh model instance each loop, trains on all accumulated data from scratch. Simple and suitable for most models.
+```python
+config['model'] = {'mode': 'retrain'}
+```
+
+**Finetune** - Reuses model instance from previous loop, continues training without resetting weights. Preserves normalization parameters (e.g., X_mu, X_sigma from loop 0). Ideal for neural networks.
+```python
+config['model'] = {'mode': 'finetune'}
+```
+
+**Checkpoint Modes:**
+- `'final'`: Save model after training completes (used for resumption)
+- `'best'`: Save best model if tracked via `get_best_model_snapshot()`
+- `'both'`: Save both final and best models
 
 ### Oracle Config
 
@@ -264,69 +348,23 @@ Built-in algorithms:
 
 ## Advanced Features
 
-### Training Modes
-
-**Retrain Mode** (default):
-- Creates fresh model instance each loop
-- Trains on all accumulated data from scratch
-- Simple and suitable for most models
-
-```python
-config['model'] = {'mode': 'retrain'}
-```
-
-**Finetune Mode**:
-- Reuses model instance from previous loop
-- Continues training without resetting weights
-- Preserves normalization parameters (e.g., X_mu, X_sigma from loop 0)
-- Ideal for neural networks
-
-```python
-config['model'] = {'mode': 'finetune'}
-```
-
-### Checkpoint Modes
-
-- `'final'`: Save model after training (used for resumption)
-- `'best'`: Save best model (if model implements `get_best_model_snapshot()`)
-- `'both'`: Save both final and best
-
 ### Sample Weighting
 
-Models can access loop tracking metadata to weight recent data:
+Models can access loop tracking metadata to weight recent data. This is useful for adaptive optimization where recent samples are more informative about promising regions.
 
 ```python
 def train(self, X, Y, metadata=None):
     if metadata and 'loop_indices' in metadata:
         loop_indices = metadata['loop_indices']
         max_loop = np.max(loop_indices)
-        # Weight recent data higher
+        # Weight recent data higher (e.g., 10x)
         weights = np.where(loop_indices == max_loop, 10.0, 1.0)
+        # Use weights in loss function
 ```
 
-See [DANetModel](mpbax/plugins/models/README.md) for example implementation.
+The DataHandler automatically tracks which loop each sample came from, making this information available to models during training.
 
-### Checkpointing Operations
-
-**Resume from latest:**
-```python
-config['checkpoint']['resume_from'] = 'latest'
-engine = Engine(config)
-engine.run()
-```
-
-**Resume from specific loop:**
-```python
-config['checkpoint']['resume_from'] = 5
-```
-
-**Rollback:**
-```python
-from mpbax.core.checkpoint import CheckpointManager
-
-manager = CheckpointManager('checkpoints')
-manager.delete_checkpoints_after(loop=3)  # Delete loops 4+
-```
+See [DANetModel](mpbax/plugins/models/README.md) for a complete implementation example using PyTorch with sample weighting.
 
 ## Developer Guide
 
