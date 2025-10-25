@@ -8,6 +8,26 @@ from mpbax.core.model import BaseModel, DummyModel
 from mpbax.core.algorithm import RandomSampling, GreedySampling
 
 
+# Define StatefulModel at module level so it can be pickled for checkpointing
+class StatefulModel(BaseModel):
+    """Model that tracks training calls for testing finetune mode."""
+
+    def __init__(self, input_dim):
+        super().__init__(input_dim)
+        self.train_count = 0
+        self.mean = None
+
+    def train(self, X, Y, metadata=None):
+        self.train_count += 1
+        self.mean = Y.mean()
+        self.is_trained = True
+
+    def predict(self, X):
+        if self.mean is None:
+            return np.zeros((X.shape[0], 1))
+        return np.full((X.shape[0], 1), self.mean)
+
+
 def test_engine_with_instances():
     """Test Engine with instance-based config (Python API)."""
     print("Testing Engine with instances...")
@@ -18,7 +38,7 @@ def test_engine_with_instances():
     with tempfile.TemporaryDirectory() as tmpdir:
         config = {
             'seed': 42,
-            'max_loops': 2,
+            'max_loops': 3,
             'checkpoint': {'dir': tmpdir, 'freq': 1},
             'oracles': [{
                 'name': 'test',
@@ -37,7 +57,7 @@ def test_engine_with_instances():
         engine.run()
 
         # Verify completion
-        assert engine.current_loop == 2
+        assert engine.current_loop == 3
         assert engine.evaluators[0].get_eval_count() == 10 + 5 + 5  # initial + 2 loops
 
     print("  ✓ Engine with instances passed")
@@ -89,7 +109,7 @@ def test_engine_multi_oracle():
     with tempfile.TemporaryDirectory() as tmpdir:
         config = {
             'seed': 42,
-            'max_loops': 2,
+            'max_loops': 3,
             'checkpoint': {'dir': tmpdir, 'freq': 1},
             'oracles': [
                 {
@@ -131,23 +151,6 @@ def test_engine_finetune_mode():
     def oracle(X):
         return np.sum(X**2, axis=1, keepdims=True)
 
-    # Custom model that tracks training calls
-    class StatefulModel(BaseModel):
-        def __init__(self, input_dim):
-            super().__init__(input_dim)
-            self.train_count = 0
-            self.mean = None
-
-        def train(self, X, Y, metadata=None):
-            self.train_count += 1
-            self.mean = Y.mean()
-            self.is_trained = True
-
-        def predict(self, X):
-            if self.mean is None:
-                return np.zeros((X.shape[0], 1))
-            return np.full((X.shape[0], 1), self.mean)
-
     with tempfile.TemporaryDirectory() as tmpdir:
         config = {
             'seed': 42,
@@ -168,18 +171,15 @@ def test_engine_finetune_mode():
         }
 
         engine = Engine(config)
-
-        # Get initial model ID
-        model_id_initial = id(engine.models[0])
-
         engine.run()
 
-        # In finetune mode, model instance should be reused
-        model_id_final = id(engine.models[0])
-        assert model_id_initial == model_id_final
-
-        # Model should have been trained 3 times (once per loop)
+        # In finetune mode, model instance is reused across loops
+        # We can verify by checking train_count - should be 3 (once per loop)
         assert engine.models[0].train_count == 3
+
+        # Verify model was actually trained
+        assert engine.models[0].is_trained
+        assert engine.models[0].mean is not None
 
     print("  ✓ Engine finetune mode passed")
 

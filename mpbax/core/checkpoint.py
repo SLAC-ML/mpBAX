@@ -212,7 +212,7 @@ class CheckpointManager:
             state = pickle.load(f)
 
         # Determine which loop to load
-        if loop is None:
+        if loop is None or loop == 'latest':
             loop = state['current_loop']
 
         # Load config
