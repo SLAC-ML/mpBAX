@@ -3,3 +3,12 @@
 CLAUDE.md
 .DS_Store
 **/tmp
+
+# Build and packaging artifacts
+*.egg-info/
+dist/
+build/
+*.egg
+
+# pytest cache
+.pytest_cache/

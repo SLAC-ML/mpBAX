@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mpbax"
+version = "0.8.0"
+description = "Lightweight framework for model-based multi-objective optimization with built-in checkpointing and reproducibility"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    {name = "mpBAX Contributors"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.20.0",
+    "pyyaml>=5.0"
+]
+
+[project.optional-dependencies]
+torch = ["torch>=1.13.0"]
+dev = ["pytest>=7.0"]
+all = ["torch>=1.13.0", "pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/anthropics/mpBAX"
+Repository = "https://github.com/anthropics/mpBAX"
+Issues = "https://github.com/anthropics/mpBAX/issues"
+
+[tool.setuptools]
+packages = ["mpbax", "mpbax.core", "mpbax.plugins", "mpbax.plugins.models", "mpbax.utils"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

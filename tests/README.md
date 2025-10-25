@@ -15,28 +15,38 @@ Tests are organized by component for better maintainability:
 
 ## Running Tests
 
-**Run all tests:**
-```bash
-# From project root
-python -m pytest tests/
+**With installation (recommended):**
 
-# Or run individual test files
+First, install mpBAX in development mode with test dependencies:
+```bash
+cd /path/to/mpBAX
+pip install -e ".[dev]"
+```
+
+Then run tests:
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_engine.py -v
+
+# Or run individual files directly
 python tests/test_data_handler.py
 python tests/test_evaluator.py
-# etc.
 ```
 
-**Run specific test file:**
-```bash
-python tests/test_engine.py
-# or with pytest
-python -m pytest tests/test_engine.py -v
-```
+**Without installation:**
 
-**Using pytest (recommended):**
+Set PYTHONPATH and run tests:
 ```bash
-pip install pytest
+export PYTHONPATH=/path/to/mpBAX:$PYTHONPATH
+
+# With pytest
 pytest tests/ -v
+
+# Or directly
+python tests/test_engine.py
 ```
 
 ## Test Coverage

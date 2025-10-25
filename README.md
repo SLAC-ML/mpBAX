@@ -11,15 +11,45 @@ A lightweight framework for model-based multi-objective optimization with built-
 
 ## Installation
 
-No installation required - add mpBAX to your PYTHONPATH:
+**Option 1: pip install (Recommended)**
 
+Install in development mode (editable):
+```bash
+cd /path/to/mpBAX
+pip install -e .
+```
+
+Install normally:
+```bash
+pip install .
+```
+
+With optional PyTorch support (for DANetModel):
+```bash
+pip install -e ".[torch]"
+```
+
+With development tools (pytest):
+```bash
+pip install -e ".[dev]"
+```
+
+All optional dependencies:
+```bash
+pip install -e ".[all]"
+```
+
+**Option 2: PYTHONPATH (No installation)**
+
+If you prefer not to install:
 ```bash
 export PYTHONPATH=/path/to/mpBAX:$PYTHONPATH
 ```
 
 **Dependencies:**
-- Core: `numpy`, `pyyaml`
-- Optional: `torch` (for DANetModel plugin)
+- Core: `numpy>=1.20.0`, `pyyaml>=5.0`
+- Optional: `torch>=1.13.0` (for DANetModel plugin)
+- Dev: `pytest>=7.0` (for running tests)
 
 ## Quick Start
 
