@@ -1,22 +1,45 @@
 # mpBAX Examples
 
-All examples are self-contained single-file scripts demonstrating different mpBAX features.
+This directory contains examples demonstrating different mpBAX features and workflows.
 
-## Running Examples
+## Two Approaches
 
-Make sure mpBAX is in your PYTHONPATH:
+mpBAX supports two complementary workflows:
+
+**Python API (Examples 01-06)**: Pass classes and functions directly in config dict. Best for rapid prototyping and simple scripts.
+
+**YAML API (yaml_example/)**: Specify import paths in YAML file. Best for production, configuration management, and team collaboration.
+
+## Setup
+
+### Option 1: pip install (Recommended)
+
 ```bash
-export PYTHONPATH=/path/to/mpBAX:$PYTHONPATH
+cd /path/to/mpBAX
+pip install -e .
 ```
 
 Then run any example:
 ```bash
 python examples/01_basic_optimization.py
-python examples/02_multi_oracle.py
-# etc.
+cd examples/yaml_example && python run.py
+```
+
+### Option 2: PYTHONPATH (No installation)
+
+```bash
+export PYTHONPATH=/path/to/mpBAX:$PYTHONPATH
+python examples/01_basic_optimization.py
 ```
 
 ## Example Overview
+
+### yaml_example/
+**YAML configuration workflow** - Recommended for production!
+- Complete experiment in YAML config file
+- Oracle functions in separate importable module
+- Ideal for configuration management and reproducibility
+- See `yaml_example/README.md` for details
 
 ### 01_basic_optimization.py
 **The simplest example** - Start here!
@@ -58,12 +81,6 @@ python examples/02_multi_oracle.py
 - Demonstrates finetune mode
 - Sample weighting (recent data emphasized)
 - Adaptive epochs (100 initial, 20 incremental)
-
-### notebook_example.ipynb
-**Jupyter notebook version**
-- Interactive example in notebook format
-- Same basic optimization as Example 01
-- Great for exploration and visualization
 
 ## What to Try Next
 

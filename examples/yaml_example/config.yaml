@@ -1,0 +1,49 @@
+# YAML Configuration Example for mpBAX
+#
+# This config demonstrates the YAML-based workflow where all components
+# are specified via import path strings instead of Python instances.
+# This is ideal for production workflows and configuration management.
+
+# Random seed for reproducibility
+seed: 42
+
+# Maximum optimization loops
+max_loops: 10
+
+# Checkpointing configuration
+checkpoint:
+  dir: 'checkpoints_yaml'
+  freq: 1  # Save every loop
+  resume_from: null  # Set to 'latest' or loop number to resume
+
+# Global model training settings
+model:
+  mode: 'retrain'  # 'retrain' or 'finetune'
+  checkpoint_mode: 'final'  # 'final', 'best', or 'both'
+
+# Oracle configurations
+oracles:
+  - name: 'quadratic'
+    input_dim: 2
+    n_initial: 20
+
+    # Oracle function (string import path)
+    function:
+      class: 'examples.yaml_example.oracles.quadratic'
+      params: {}
+
+    # Generator (null = uniform random in [0,1]^d)
+    generate: null
+
+    # Model configuration (string import path)
+    model:
+      class: 'DummyModel'  # Built-in model
+      params: {}
+
+# Algorithm configuration
+algorithm:
+  class: 'GreedySampling'  # Built-in algorithm
+  params:
+    input_dims: [2]
+    n_propose: 10
+    n_candidates: 1000
