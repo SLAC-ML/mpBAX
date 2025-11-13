@@ -276,9 +276,10 @@ def myloss(y_pred, y_target, weights=None):
         loss: Scalar loss value
     """
     if weights is not None:
-        # Weighted MSE
+        # Weighted MSE with normalization by mean weight
+        # This keeps loss magnitude similar to unweighted case
         squared_error = (y_pred - y_target) ** 2
-        weighted_squared_error = squared_error * weights.unsqueeze(1)
+        weighted_squared_error = squared_error * weights.unsqueeze(1) / torch.mean(weights)
         loss = torch.mean(weighted_squared_error)
     else:
         loss = torch.mean((y_pred - y_target) ** 2)
