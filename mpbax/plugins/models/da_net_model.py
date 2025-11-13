@@ -3,6 +3,9 @@ DA_Net Model Plugin for mpBAX
 
 This plugin provides a PyTorch-based deep neural network model for multi-output regression.
 The model supports:
+- Multi-dimensional output (output_dim >= 1)
+- Progressive dimension reduction architecture for improved capacity
+- Flexible per-dimension sigmoid activation for output normalization
 - Input normalization (preserved across loops in finetune mode)
 - Early stopping with best model tracking
 - Multiple forward modes (fc, split, sine)
@@ -106,12 +109,14 @@ def normalize(X, X_mu, X_sigma):
 class DA_Net(nn.Module):
     """Deep neural network for multi-output regression.
 
-    Architecture: 7 fully connected layers with optional dropout and batch norm.
+    Architecture: Progressive dimension reduction with optional dropout and batch norm.
     Supports multiple forward modes: fc, split, sine.
+    Supports multi-dimensional output with optional per-dimension sigmoid activation.
     """
 
     def __init__(self, dropout=0.1, train_noise=0, n_feat=6, n_neur=800,
-                 device=None, model_type='fc', out_scale=1):
+                 device=None, model_type='fc', out_scale=1, output_dim=1,
+                 sigmoid_dims=None):
         """
         Args:
             dropout: Dropout probability
@@ -121,6 +126,12 @@ class DA_Net(nn.Module):
             device: PyTorch device (cuda/cpu)
             model_type: Forward mode - 'fc', 'split', or 'sine'
             out_scale: Output scaling factor
+            output_dim: Number of output dimensions (default=1)
+            sigmoid_dims: Sigmoid activation control:
+                - None or False: No sigmoid on any dimension (default)
+                - True or 'all': Apply sigmoid to all dimensions
+                - list/tuple of bool: Per-dimension control (must match output_dim length)
+                  Example: [True, False] applies sigmoid to dim 0, not dim 1
         """
         super(DA_Net, self).__init__()
 
@@ -131,27 +142,43 @@ class DA_Net(nn.Module):
         self.device = device if device else torch.device('cpu')
         self.model_type = model_type
         self.out_scale = out_scale
+        self.output_dim = output_dim
 
-        # Define layers
+        # Process sigmoid_dims into a boolean mask
+        if sigmoid_dims is None or sigmoid_dims is False:
+            self.sigmoid_mask = None
+        elif sigmoid_dims is True or sigmoid_dims == 'all':
+            self.sigmoid_mask = torch.ones(output_dim, dtype=torch.bool)
+        else:
+            # List/tuple of booleans
+            if len(sigmoid_dims) != output_dim:
+                raise ValueError(
+                    f"sigmoid_dims list length ({len(sigmoid_dims)}) must match "
+                    f"output_dim ({output_dim})"
+                )
+            self.sigmoid_mask = torch.tensor(sigmoid_dims, dtype=torch.bool)
+
+        # Define layers with progressive dimension reduction
         self.fc1 = nn.Linear(n_feat, n_neur)
         self.fc2 = nn.Linear(n_neur, n_neur)
         self.fc3 = nn.Linear(n_neur, n_neur)
-        self.fc4 = nn.Linear(n_neur, n_neur)
-        self.fc5 = nn.Linear(n_neur, n_neur)
-        self.fc6 = nn.Linear(n_neur, n_neur)
+        self.fc4 = nn.Linear(n_neur, int(n_neur/2))  # Progressive reduction
+        self.fc5 = nn.Linear(int(n_neur/2), int(n_neur/4))  # Progressive reduction
 
-        if model_type == 'split':
-            # Split mode: concatenate spatial coords (last 2 features) before final layer
-            self.fc7 = nn.Linear(n_neur + 2, 1)
+        if model_type in ['split', 'sine']:
+            # Split/sine modes: concatenate spatial coords (last 2 features) after fc5
+            self.fc6 = nn.Linear(int(n_neur/4) + 2, int(n_neur/4))
         else:
-            self.fc7 = nn.Linear(n_neur, 1)
+            self.fc6 = nn.Linear(int(n_neur/4), int(n_neur/4))
+
+        self.fc_out = nn.Linear(int(n_neur/4), output_dim)
 
         self.dropout_layer = nn.Dropout(p=dropout)
-        self.bn1 = nn.BatchNorm1d(n_neur)
-        self.bn2 = nn.BatchNorm1d(n_neur)
+        self.bn1 = nn.BatchNorm1d(n_neur)  # After fc2 (outputs n_neur)
+        self.bn2 = nn.BatchNorm1d(int(n_neur/2))  # After fc4 (outputs n_neur/2)
 
     def forward_fc(self, x):
-        """Standard fully connected forward pass."""
+        """Standard fully connected forward pass with progressive dimension reduction."""
         x = torch.relu(self.fc1(x))
         x = self.dropout_layer(x)
         x = self.bn1(torch.relu(self.fc2(x)))
@@ -164,11 +191,17 @@ class DA_Net(nn.Module):
         x = self.dropout_layer(x)
         x = torch.relu(self.fc6(x))
         x = self.dropout_layer(x)
-        x = self.fc7(x)
+        x = self.fc_out(x)
+
+        # Apply selective sigmoid activation
+        if self.sigmoid_mask is not None:
+            sigmoid_mask = self.sigmoid_mask.to(x.device)
+            x = torch.where(sigmoid_mask, torch.sigmoid(x), x)
+
         return x * self.out_scale
 
     def forward_split(self, x):
-        """Split mode: pass spatial coordinates separately to output layer."""
+        """Split mode: concatenate spatial coordinates after fc5 before fc6."""
         xy = x[:, -2:]  # Last 2 features (spatial coords)
         x = torch.relu(self.fc1(x))
         x = self.dropout_layer(x)
@@ -179,15 +212,21 @@ class DA_Net(nn.Module):
         x = self.bn2(torch.relu(self.fc4(x)))
         x = self.dropout_layer(x)
         x = torch.relu(self.fc5(x))
-        x = self.dropout_layer(x)
+        x = torch.cat((x, xy), dim=1)  # Concatenate spatial coords after fc5
         x = torch.relu(self.fc6(x))
         x = self.dropout_layer(x)
-        x = torch.cat((x, xy), dim=1)  # Concatenate spatial coords
-        x = self.fc7(x)
+        x = self.fc_out(x)
+
+        # Apply selective sigmoid activation
+        if self.sigmoid_mask is not None:
+            sigmoid_mask = self.sigmoid_mask.to(x.device)
+            x = torch.where(sigmoid_mask, torch.sigmoid(x), x)
+
         return x * self.out_scale
 
     def forward_sine(self, x):
-        """Sine activation mode (experimental)."""
+        """Sine activation mode: uses sin() instead of relu, concatenates spatial coords."""
+        xy = x[:, -2:]  # Last 2 features (spatial coords)
         x = torch.sin(self.fc1(x))
         x = self.dropout_layer(x)
         x = self.bn1(torch.sin(self.fc2(x)))
@@ -197,10 +236,16 @@ class DA_Net(nn.Module):
         x = self.bn2(torch.sin(self.fc4(x)))
         x = self.dropout_layer(x)
         x = torch.sin(self.fc5(x))
-        x = self.dropout_layer(x)
+        x = torch.cat((x, xy), dim=1)  # Concatenate spatial coords after fc5
         x = torch.sin(self.fc6(x))
         x = self.dropout_layer(x)
-        x = self.fc7(x)
+        x = self.fc_out(x)
+
+        # Apply selective sigmoid activation
+        if self.sigmoid_mask is not None:
+            sigmoid_mask = self.sigmoid_mask.to(x.device)
+            x = torch.where(sigmoid_mask, torch.sigmoid(x), x)
+
         return x * self.out_scale
 
     def forward(self, x):
@@ -355,11 +400,23 @@ class DANetModel(BaseModel):
     """DA_Net model plugin for mpBAX framework.
 
     Features:
-    - PyTorch-based deep neural network
+    - PyTorch-based deep neural network with progressive dimension reduction
+    - Multi-dimensional output support (output_dim >= 1)
+    - Flexible per-dimension sigmoid activation for output range control
     - Automatic input normalization (preserved in finetune mode)
     - Early stopping with best model tracking
     - GPU acceleration when available
     - Configurable architecture and training parameters
+
+    Example usage:
+        # Single output, no sigmoid
+        model = DANetModel(input_dim=4)
+
+        # Two outputs, sigmoid on both (normalize to [0, 1])
+        model = DANetModel(input_dim=4, sigmoid_dims=True)
+
+        # Two outputs, sigmoid only on second dimension
+        model = DANetModel(input_dim=4, sigmoid_dims=[False, True])
     """
 
     def __init__(self, input_dim: int,
@@ -370,6 +427,7 @@ class DANetModel(BaseModel):
                  epochs_iter: int = 10,
                  model_type: str = 'split',
                  out_scale: float = 1.0,
+                 sigmoid_dims=None,
                  test_ratio: float = 0.05,
                  batch_size: int = 1000,
                  early_stop_patience: Optional[int] = 10,
@@ -387,6 +445,11 @@ class DANetModel(BaseModel):
             epochs_iter: Number of training epochs for later iterations (finetuning phase)
             model_type: Forward mode - 'fc', 'split', or 'sine'
             out_scale: Output scaling factor
+            sigmoid_dims: Sigmoid activation control for output layer:
+                - None or False: No sigmoid on any dimension (default)
+                - True or 'all': Apply sigmoid to all output dimensions
+                - list/tuple of bool: Per-dimension control (e.g., [True, False] for 2D output)
+                  Note: length must match output_dim inferred from training data
             test_ratio: Fraction of data for test set
             batch_size: Training batch size
             early_stop_patience: Patience for early stopping (None = disabled)
@@ -411,6 +474,7 @@ class DANetModel(BaseModel):
         self.epochs_iter = epochs_iter
         self.model_type = model_type
         self.out_scale = out_scale
+        self.sigmoid_dims = sigmoid_dims
         self.test_ratio = test_ratio
         self.batch_size = batch_size
         self.early_stop_patience = early_stop_patience
@@ -519,7 +583,9 @@ class DANetModel(BaseModel):
                 n_neur=self.n_neur,
                 device=self.device,
                 model_type=self.model_type,
-                out_scale=self.out_scale
+                out_scale=self.out_scale,
+                output_dim=self.output_dim,
+                sigmoid_dims=self.sigmoid_dims
             ).to(self.device)
 
             if self.verbose:
@@ -652,7 +718,9 @@ class DANetModel(BaseModel):
                     n_neur=self.n_neur,
                     device=self.device,
                     model_type=self.model_type,
-                    out_scale=self.out_scale
+                    out_scale=self.out_scale,
+                    output_dim=self.output_dim,
+                    sigmoid_dims=self.sigmoid_dims
                 ).to(self.device)
 
             self.network.load_state_dict(state_dict['network_state_dict'])
@@ -679,6 +747,7 @@ class DANetModel(BaseModel):
             epochs_iter=self.epochs_iter,
             model_type=self.model_type,
             out_scale=self.out_scale,
+            sigmoid_dims=self.sigmoid_dims,
             test_ratio=self.test_ratio,
             batch_size=self.batch_size,
             early_stop_patience=self.early_stop_patience,
@@ -703,7 +772,9 @@ class DANetModel(BaseModel):
             n_neur=self.n_neur,
             device=best_model.device,
             model_type=self.model_type,
-            out_scale=self.out_scale
+            out_scale=self.out_scale,
+            output_dim=self.output_dim,
+            sigmoid_dims=self.sigmoid_dims
         ).to(best_model.device)
 
         best_model.network.load_state_dict(self.best_network_state)
