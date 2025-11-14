@@ -50,18 +50,42 @@ class Engine:
 
         # Validate oracle configs
         for i, oracle_config in enumerate(self.oracle_configs):
-            required_fields = ['name', 'input_dim', 'n_initial', 'function', 'model']
+            oracle_name = oracle_config.get('name', f'oracle_{i}')
+
+            # Basic required fields (input_dim and n_initial now optional at oracle level)
+            required_fields = ['name', 'function', 'model']
             for field in required_fields:
                 if field not in oracle_config:
                     raise ValueError(f"Oracle {i} missing required field: '{field}'")
 
             # Validate function config
             if 'class' not in oracle_config['function']:
-                raise ValueError(f"Oracle {i} function config missing 'class' field")
+                raise ValueError(f"Oracle {i} ({oracle_name}) function config missing 'class' field")
 
             # Validate model config
             if 'class' not in oracle_config['model']:
-                raise ValueError(f"Oracle {i} model config missing 'class' field")
+                raise ValueError(f"Oracle {i} ({oracle_name}) model config missing 'class' field")
+
+            # Validate input_dim is specified somewhere (oracle level OR model.params OR generate.params)
+            input_dim_oracle = oracle_config.get('input_dim')
+            input_dim_model = oracle_config.get('model', {}).get('params', {}).get('input_dim')
+            input_dim_generate = oracle_config.get('generate', {}).get('params', {}).get('d')
+
+            if input_dim_oracle is None and input_dim_model is None and input_dim_generate is None:
+                raise ValueError(
+                    f"Oracle {i} ({oracle_name}): input_dim must be specified in one of: "
+                    "oracle config, model.params.input_dim, or generate.params.d"
+                )
+
+            # Validate n_initial is specified somewhere (oracle level OR generate.params)
+            n_initial_oracle = oracle_config.get('n_initial')
+            n_initial_generate = oracle_config.get('generate', {}).get('params', {}).get('n')
+
+            if n_initial_oracle is None and n_initial_generate is None:
+                raise ValueError(
+                    f"Oracle {i} ({oracle_name}): n_initial must be specified in either "
+                    "oracle config or generate.params.n"
+                )
 
         # Validate oracle names are unique
         oracle_names = [cfg['name'] for cfg in self.oracle_configs]
@@ -76,9 +100,18 @@ class Engine:
         # Create evaluators
         self.evaluators = []
         for fn_oracle, oracle_config in zip(self.fn_oracles, self.oracle_configs):
+            # Get input_dim from oracle config, model.params, or generate.params
+            input_dim = oracle_config.get('input_dim')
+            if input_dim is None:
+                model_params = oracle_config.get('model', {}).get('params', {})
+                input_dim = model_params.get('input_dim')
+            if input_dim is None:
+                gen_params = oracle_config.get('generate', {}).get('params', {})
+                input_dim = gen_params.get('d')
+
             evaluator = Evaluator(
                 fn_oracle=fn_oracle,
-                input_dim=oracle_config['input_dim'],
+                input_dim=input_dim,
                 name=oracle_config['name']
             )
             self.evaluators.append(evaluator)
@@ -134,7 +167,11 @@ class Engine:
                     Y_new = evaluator.evaluate(X_new)
 
                     # Create data handler for this loop's data
-                    dh_new = DataHandler(input_dim=oracle_config['input_dim'])
+                    # Get input_dim from X_new if not in config
+                    input_dim = oracle_config.get('input_dim')
+                    if input_dim is None:
+                        input_dim = X_new.shape[1]
+                    dh_new = DataHandler(input_dim=input_dim)
                     dh_new.add_data(X_new, Y_new, loop=self.current_loop)
 
                     # Store for checkpointing
@@ -145,7 +182,19 @@ class Engine:
 
             # Step 4: Train models
             print("Training models...")
-            model_mode = self.config.get('model', {}).get('mode', 'retrain')
+            # Support both 'training' (new) and 'model' (deprecated) for backward compatibility
+            training_config = self.config.get('training')
+            if training_config is None:
+                training_config = self.config.get('model', {})
+                if training_config:
+                    import warnings
+                    warnings.warn(
+                        "Using 'model' for top-level training config is deprecated. "
+                        "Please rename to 'training' in your config.",
+                        DeprecationWarning,
+                        stacklevel=2
+                    )
+            model_mode = training_config.get('mode', 'retrain')
 
             if model_mode == 'finetune' and self.current_loop > 0:
                 # Finetuning: continue from previous model instances
@@ -194,17 +243,50 @@ class Engine:
         for i, (evaluator, oracle_config) in enumerate(zip(self.evaluators, self.oracle_configs)):
             print(f"Generating initial data for {oracle_config['name']}...")
 
-            # Get n_initial for this oracle
-            n_initial = oracle_config['n_initial']
+            # Handle flexible generator calling
+            gen_config = oracle_config.get('generate')
 
-            # Generate initial samples using per-oracle generator
-            X0 = self.fn_generate_list[i](n_initial, oracle_config['input_dim'])
+            # Check if user provided a custom generator (has 'class' field)
+            has_custom_generator = gen_config is not None and 'class' in gen_config
+
+            if has_custom_generator and 'params' in gen_config:
+                # Custom generator with params - call with those params
+                gen_params = gen_config['params']
+                X0 = self.fn_generate_list[i](**gen_params)
+            else:
+                # Default generator or generator without params
+                # Get n_initial (from oracle or generate.params.n)
+                n_initial = oracle_config.get('n_initial')
+                if n_initial is None and gen_config and 'params' in gen_config:
+                    n_initial = gen_config['params'].get('n')
+                if n_initial is None:
+                    raise ValueError(
+                        f"Oracle {i} ({oracle_config['name']}): n_initial not found"
+                    )
+
+                # Get input_dim (from oracle, model.params, or generate.params.d)
+                input_dim = oracle_config.get('input_dim')
+                if input_dim is None:
+                    model_params = oracle_config.get('model', {}).get('params', {})
+                    input_dim = model_params.get('input_dim')
+                if input_dim is None and gen_config and 'params' in gen_config:
+                    input_dim = gen_config['params'].get('d')
+
+                if input_dim is not None:
+                    # Call with (n, d) - standard signature
+                    X0 = self.fn_generate_list[i](n_initial, input_dim)
+                else:
+                    # Call with just n - problem-specific generator
+                    X0 = self.fn_generate_list[i](n_initial)
 
             # Evaluate
             Y0 = evaluator.evaluate(X0)
 
-            # Create data handler
-            dh = DataHandler(input_dim=oracle_config['input_dim'])
+            # Create data handler - get input_dim from X0 if not in config
+            input_dim_for_dh = oracle_config.get('input_dim')
+            if input_dim_for_dh is None:
+                input_dim_for_dh = X0.shape[1]
+            dh = DataHandler(input_dim=input_dim_for_dh)
             dh.add_data(X0, Y0, loop=0)  # Initial data is from loop 0
             self.data_handlers.append(dh)
 
@@ -327,7 +409,6 @@ class Engine:
         for i, oracle_config in enumerate(self.oracle_configs):
             fn_config = oracle_config['function']
             fn_class_or_instance = fn_config['class']
-            fn_params = fn_config.get('params', {})
 
             try:
                 # Support both string (import path) and direct instance
@@ -341,8 +422,13 @@ class Engine:
                     # Instance: use the function/factory directly
                     fn_or_factory = fn_class_or_instance
 
-                # If params provided, call as factory; otherwise use directly
-                if fn_params:
+                # If params key exists in config, call as factory; otherwise use directly
+                # Check for key existence to distinguish:
+                #   - No 'params' key: use function directly
+                #   - 'params': {} : call factory with no args
+                #   - 'params': {x: 1}: call factory with args
+                if 'params' in fn_config:
+                    fn_params = fn_config['params']
                     fn_oracle = fn_or_factory(**fn_params)
                 else:
                     fn_oracle = fn_or_factory
@@ -383,13 +469,12 @@ class Engine:
         for i, oracle_config in enumerate(self.oracle_configs):
             gen_config = oracle_config.get('generate')
 
-            if gen_config is None:
-                # Use default generator
+            if gen_config is None or 'class' not in gen_config:
+                # Use default generator (when generate is None or just has params for default)
                 fn_generate_list.append(self._default_generate)
             else:
                 # Import custom generator or use instance
                 gen_class_or_instance = gen_config['class']
-                gen_params = gen_config.get('params', {})
 
                 try:
                     # Support both string (import path) and direct instance
@@ -400,14 +485,12 @@ class Engine:
                         module = importlib.import_module(module_path)
                         gen_or_factory = getattr(module, obj_name)
                     else:
-                        # Instance: use the generator/factory directly
+                        # Instance: use the generator directly
                         gen_or_factory = gen_class_or_instance
 
-                    # If params provided, call as factory; otherwise use directly
-                    if gen_params:
-                        fn_generate = gen_or_factory(**gen_params)
-                    else:
-                        fn_generate = gen_or_factory
+                    # For generators, never call as factory during instantiation
+                    # Store the generator function itself - params will be passed during call
+                    fn_generate = gen_or_factory
 
                     fn_generate_list.append(fn_generate)
 
@@ -472,8 +555,22 @@ class Engine:
                 model_class = model_class_or_name
 
             # Instantiate model with input_dim and params
+            # Handle flexible input_dim placement: model.params.input_dim OR oracle.input_dim
             try:
-                model = model_class(input_dim=oracle_config['input_dim'], **model_params)
+                if 'input_dim' in model_params:
+                    # input_dim already in model params - use as is
+                    model = model_class(**model_params)
+                else:
+                    # Fall back to oracle-level input_dim (backward compatibility)
+                    input_dim = oracle_config.get('input_dim')
+                    if input_dim is None:
+                        # Try to get from generate.params.d as last resort
+                        input_dim = oracle_config.get('generate', {}).get('params', {}).get('d')
+                    if input_dim is None:
+                        raise ValueError(
+                            f"input_dim not found for model in oracle {i} ({oracle_config['name']})"
+                        )
+                    model = model_class(input_dim=input_dim, **model_params)
                 models.append(model)
             except TypeError as e:
                 # Generate appropriate error message

@@ -6,7 +6,7 @@ This directory contains examples demonstrating different mpBAX features and work
 
 mpBAX supports two complementary workflows:
 
-**Python API (Examples 01-06)**: Pass classes and functions directly in config dict. Best for rapid prototyping and simple scripts.
+**Python API (Examples 01-07)**: Pass classes and functions directly in config dict. Best for rapid prototyping and simple scripts.
 
 **YAML API (yaml_example/)**: Specify import paths in YAML file. Best for production, configuration management, and team collaboration.
 
@@ -81,6 +81,15 @@ python examples/01_basic_optimization.py
 - Demonstrates finetune mode
 - Sample weighting (recent data emphasized)
 - Adaptive epochs (100 initial, 20 incremental)
+
+### 07_flexible_config.py
+**New flexible config patterns** (mpBAX v2)
+- Demonstrates all new parameter placement options
+- input_dim in model.params instead of oracle level
+- Default generator shortcut (generate.params.n)
+- Custom generator with all params (n, d, custom)
+- 'training' instead of 'model' for top-level config
+- Shows backward compatibility with traditional patterns
 
 ## What to Try Next
 

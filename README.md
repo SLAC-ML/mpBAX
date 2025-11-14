@@ -108,6 +108,52 @@ oracles:
 
 See [examples/](examples/) for more examples.
 
+### Flexible Config Patterns
+
+mpBAX v2 introduces flexible parameter placement for cleaner configs:
+
+**Default Generator Shortcut:**
+```python
+# Use default uniform generator with custom number of samples
+'oracles': [{
+    'input_dim': 2,
+    'generate': {'params': {'n': 20}},  # No need to specify 'class'
+    ...
+}]
+```
+
+**Parameter-Level Placement:**
+```python
+# Put input_dim where it's used (in model params)
+'oracles': [{
+    'generate': {'params': {'n': 20, 'd': 2}},
+    'model': {
+        'class': DummyModel,
+        'params': {'input_dim': 2}  # Input dim specified here
+    }
+}]
+```
+
+**Custom Generator with All Params:**
+```python
+# Pass all params (n, d, custom) to generator
+'generate': {
+    'class': lhs_generator,
+    'params': {'n': 20, 'd': 4, 'criterion': 'maximin'}
+}
+```
+
+**Cleaner Top-Level Config:**
+```python
+# Use 'training' instead of 'model' to avoid confusion
+config = {
+    'training': {'mode': 'finetune'},  # Clear and unambiguous
+    'oracles': [...]
+}
+```
+
+All old config patterns remain supported for backward compatibility.
+
 ## Examples
 
 See [examples/](examples/) directory:
@@ -229,29 +275,35 @@ checkpoint:
   freq: 1
   resume_from: null  # or 'latest' or loop number
 
-# Global model training settings
-model:
+# Global training settings (renamed from 'model' to avoid confusion)
+training:
   mode: 'retrain'  # 'retrain' or 'finetune'
   checkpoint_mode: 'final'  # 'final', 'best', or 'both'
 
 # Oracle configurations (list - one per oracle)
 oracles:
   - name: 'my_objective'
-    input_dim: 4
-    n_initial: 20
+    input_dim: 4        # Can also be in model.params or generate.params.d
+    n_initial: 20       # Can also be in generate.params.n
 
     # Oracle function
     function:
       class: 'myproject.oracles.my_oracle'  # or direct instance
-      params: {}
+      params: {}        # Empty dict calls factory with no args
 
     # Optional: Custom generator (null = uniform [0,1]^d)
     generate: null
+    # Alternative patterns:
+    #   generate:
+    #     params: {n: 20}  # Use default generator with custom n
+    #   generate:
+    #     class: 'myproject.generators.lhs_generator'
+    #     params: {n: 20, d: 4, criterion: 'maximin'}  # All params here
 
     # Model for this oracle
     model:
       class: 'DummyModel'  # or 'DANetModel' or custom
-      params: {}
+      params: {}        # Can include input_dim here instead of oracle level
 
 # Algorithm configuration
 algorithm:
@@ -269,9 +321,11 @@ algorithm:
 | `seed` | int | Random seed for reproducibility |
 | `max_loops` | int | Maximum optimization loops |
 | `checkpoint` | dict | Checkpointing configuration |
-| `model` | dict | Global model training settings |
+| `training` | dict | Global training settings (formerly `model`) |
 | `oracles` | list | Oracle configurations (see below) |
 | `algorithm` | dict | Algorithm configuration |
+
+**Note:** `training` was renamed from `model` to avoid confusion with per-oracle `model` field. The old name is still supported with a deprecation warning.
 
 ### Checkpoint Config
 
@@ -300,7 +354,7 @@ manager = CheckpointManager('checkpoints')
 manager.delete_checkpoints_after(loop=3)  # Delete loops 4+
 ```
 
-### Model Config (Global)
+### Training Config (Global)
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -311,12 +365,12 @@ manager.delete_checkpoints_after(loop=3)  # Delete loops 4+
 
 **Retrain** (default) - Creates fresh model instance each loop, trains on all accumulated data from scratch. Simple and suitable for most models.
 ```python
-config['model'] = {'mode': 'retrain'}
+config['training'] = {'mode': 'retrain'}
 ```
 
 **Finetune** - Reuses model instance from previous loop, continues training without resetting weights. Preserves normalization parameters (e.g., X_mu, X_sigma from loop 0). Ideal for neural networks.
 ```python
-config['model'] = {'mode': 'finetune'}
+config['training'] = {'mode': 'finetune'}
 ```
 
 **Checkpoint Modes:**
@@ -329,11 +383,43 @@ config['model'] = {'mode': 'finetune'}
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | str | Oracle identifier (used for checkpoint dirs) |
-| `input_dim` | int | Input dimensionality |
-| `n_initial` | int | Number of initial samples |
+| `input_dim` | int (optional) | Input dimensionality (can be in model.params or generate.params.d) |
+| `n_initial` | int (optional) | Number of initial samples (can be in generate.params.n) |
 | `function` | dict | `{'class': func_or_path, 'params': {}}` |
 | `generate` | dict/null | Custom generator or null for uniform [0,1]^d |
 | `model` | dict | `{'class': model_class_or_path, 'params': {}}` |
+
+**Flexible Parameter Placement:**
+
+The framework supports multiple ways to specify `input_dim` and `n_initial`:
+
+```yaml
+# Pattern 1: Traditional (oracle level)
+oracles:
+  - input_dim: 4
+    n_initial: 20
+
+# Pattern 2: input_dim in model.params
+oracles:
+  - model:
+      params: {input_dim: 4}
+
+# Pattern 3: n in generate.params (default generator shortcut)
+oracles:
+  - input_dim: 4
+    generate:
+      params: {n: 20}
+
+# Pattern 4: All params in custom generator
+oracles:
+  - generate:
+      class: 'myproject.generators.custom'
+      params: {n: 20, d: 4, scale: 0.5}
+    model:
+      params: {input_dim: 4}
+```
+
+At least one location must specify each parameter. The framework validates that required params exist somewhere in the config.
 
 ### Algorithm Config
 
@@ -449,10 +535,21 @@ class MyAlgorithm(BaseAlgorithm):
 
 **Custom Generator:**
 
+Generators are functions that generate initial samples. They receive all params during the actual call (not during instantiation):
+
 ```python
 def lhs_generator(n, d, criterion='maximin'):
-    """Latin Hypercube Sampling generator."""
-    # Return X with shape (n, d)
+    """Latin Hypercube Sampling generator.
+
+    Args:
+        n: Number of samples to generate
+        d: Input dimensionality
+        criterion: LHS sampling criterion
+
+    Returns:
+        X with shape (n, d)
+    """
+    # Generate samples using LHS
     return X
 ```
 
@@ -460,9 +557,15 @@ Use in config:
 ```python
 'generate': {
     'class': lhs_generator,  # or import path
-    'params': {'criterion': 'maximin'}
+    'params': {
+        'n': 20,            # Number of samples
+        'd': 4,             # Dimensionality
+        'criterion': 'maximin'  # Custom parameter
+    }
 }
 ```
+
+The generator receives **all** params specified in the config during the call. This allows flexible signatures beyond the standard `(n, d)` pattern.
 
 ### Testing
 
