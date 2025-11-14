@@ -61,6 +61,9 @@ def _make_yaml_serializable(obj: Any) -> Any:
     elif isinstance(obj, list):
         # Recursively handle list
         return [_make_yaml_serializable(item) for item in obj]
+    elif isinstance(obj, tuple):
+        # Convert tuple to list (YAML-safe, avoids !!python/tuple tags)
+        return [_make_yaml_serializable(item) for item in obj]
     elif inspect.isclass(obj) or inspect.isfunction(obj) or inspect.ismethod(obj):
         # Convert class/function to module path string
         module = inspect.getmodule(obj)
