@@ -91,6 +91,15 @@ python examples/01_basic_optimization.py
 - 'training' instead of 'model' for top-level config
 - Shows backward compatibility with traditional patterns
 
+### 08_checkpoint_analysis.py
+**Post-optimization analysis utilities**
+- Load models from specific loops
+- Get fn_pred_list for testing with algorithms
+- Load data from individual loops or accumulated
+- Examine optimization progress and convergence
+- Test historical models with current algorithms
+- Perfect for notebooks and analysis workflows
+
 ## What to Try Next
 
 After running the examples, try:
