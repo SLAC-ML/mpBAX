@@ -513,6 +513,21 @@ class DANetModel(BaseModel):
         """
         self._validate_data(X, Y)
 
+        # Filter out samples with NaN values in Y
+        valid_mask = ~np.any(np.isnan(Y), axis=1)
+        n_invalid = np.sum(~valid_mask)
+        if n_invalid > 0:
+            if self.verbose:
+                print(f"  [DANetModel] Filtering {n_invalid} samples with NaN labels (keeping {np.sum(valid_mask)}/{len(Y)} samples)")
+            X = X[valid_mask]
+            Y = Y[valid_mask]
+            if metadata and 'loop_indices' in metadata:
+                metadata = metadata.copy()
+                metadata['loop_indices'] = metadata['loop_indices'][valid_mask]
+
+        if len(X) == 0:
+            raise ValueError("No valid training samples after NaN filtering")
+
         # Infer output dimensionality
         if self.output_dim is None:
             self.output_dim = Y.shape[1]
