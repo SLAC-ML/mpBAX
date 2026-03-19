@@ -19,14 +19,16 @@ checkpoint:
   # Directory to save checkpoints
   dir: "checkpoints"
 
-  # Frequency of checkpointing (1 = every loop, 2 = every 2 loops, etc.)
+  # Frequency of model checkpointing (1 = every loop, 2 = every 2 loops, etc.)
+  # Note: Data is always saved every loop regardless of this setting.
   freq: 1
 
   # Resume from checkpoint (null = start fresh, "latest" = resume from latest, or specify loop number)
   resume_from: null
 
-# Model training settings (global, applies to all oracles unless overridden)
-model:
+# Training settings (global, applies to all oracles unless overridden)
+# Note: 'training' is the preferred key; 'model' is also supported for backward compatibility
+training:
   # Training mode: "retrain" or "finetune"
   # - retrain: Creates fresh model each loop, trains on all accumulated data
   # - finetune: Reuses model from previous loop, continues training

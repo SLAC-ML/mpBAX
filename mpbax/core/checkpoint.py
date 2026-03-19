@@ -105,20 +105,22 @@ class CheckpointManager:
         """
         self.checkpoint_dir = Path(checkpoint_dir)
 
-    def save_checkpoint(
+    def save_data(
         self,
         loop: int,
         data_handlers: List[DataHandler],
-        models: List[BaseModel],
         config: Dict,
         oracle_names: List[str]
     ) -> None:
-        """Save checkpoint for current loop.
+        """Save data files for current loop. Called every loop.
+
+        Data (oracle evaluations) is always saved because it is the most
+        valuable artifact — oracle evaluations are expensive and cannot
+        be recreated. Models can be retrained from data at any time.
 
         Args:
             loop: Current loop number
             data_handlers: List of DataHandler instances (one per oracle)
-            models: List of Model instances (one per oracle)
             config: Configuration dictionary
             oracle_names: List of oracle names
         """
@@ -126,17 +128,45 @@ class CheckpointManager:
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
         # Save config (only once)
-        # Convert instance-based config to YAML-serializable format
         config_path = self.checkpoint_dir / "config.yaml"
         if not config_path.exists():
             config_serializable = _make_yaml_serializable(config)
             with open(config_path, 'w') as f:
-                # Add header comment for local functions
                 f.write("# Note: Functions/classes from __main__ are marked as <local:name>\n")
                 f.write("# and cannot be re-imported. Pass config with instances when resuming.\n\n")
                 yaml.dump(config_serializable, f)
 
-        # Save state
+        # Save data for each oracle
+        for data_handler, oracle_name in zip(data_handlers, oracle_names):
+            oracle_name_sanitized = _sanitize_oracle_name(oracle_name)
+            oracle_dir = self.checkpoint_dir / oracle_name_sanitized
+            oracle_dir.mkdir(exist_ok=True)
+
+            data_path = oracle_dir / f"data_{loop}.pkl"
+            data_handler.save(str(data_path))
+
+    def save_models(
+        self,
+        loop: int,
+        models: List[BaseModel],
+        config: Dict,
+        oracle_names: List[str]
+    ) -> None:
+        """Save model files and state for current loop. Called per checkpoint_freq.
+
+        Also updates state.pkl which tracks the latest resumable checkpoint.
+        This ensures get_latest_loop() / load_checkpoint() always points to
+        a loop with both data and model files available.
+
+        Args:
+            loop: Current loop number
+            models: List of Model instances (one per oracle)
+            config: Configuration dictionary
+            oracle_names: List of oracle names
+        """
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save state (tracks latest resumable checkpoint)
         state = {
             'current_loop': loop,
             'n_oracles': len(oracle_names),
@@ -146,31 +176,49 @@ class CheckpointManager:
         with open(state_path, 'wb') as f:
             pickle.dump(state, f)
 
-        # Get checkpoint mode from config
-        checkpoint_mode = config.get('model', {}).get('checkpoint_mode', 'final')
+        # Resolve checkpoint_mode: check 'training' first, fall back to 'model'
+        training_config = config.get('training')
+        if training_config is None:
+            training_config = config.get('model', {})
+        checkpoint_mode = training_config.get('checkpoint_mode', 'final') if training_config else 'final'
 
-        # Save data and models for each oracle
-        for i, (data_handler, model, oracle_name) in enumerate(zip(data_handlers, models, oracle_names)):
+        # Save models for each oracle
+        for model, oracle_name in zip(models, oracle_names):
             oracle_name_sanitized = _sanitize_oracle_name(oracle_name)
             oracle_dir = self.checkpoint_dir / oracle_name_sanitized
-            oracle_dir.mkdir(exist_ok=True)
 
-            # Save data_loop
-            data_path = oracle_dir / f"data_{loop}.pkl"
-            data_handler.save(str(data_path))
-
-            # Save models based on checkpoint_mode
             if checkpoint_mode in ['final', 'both']:
-                # Save final model (used for resumption)
                 model_path = oracle_dir / f"model_{loop}_final.pkl"
                 model.save(str(model_path))
 
             if checkpoint_mode in ['best', 'both']:
-                # Save best model if available
                 best_model = model.get_best_model_snapshot()
                 if best_model is not None:
                     best_model_path = oracle_dir / f"model_{loop}_best.pkl"
                     best_model.save(str(best_model_path))
+
+    def save_checkpoint(
+        self,
+        loop: int,
+        data_handlers: List[DataHandler],
+        models: List[BaseModel],
+        config: Dict,
+        oracle_names: List[str]
+    ) -> None:
+        """Save checkpoint for current loop (data + models).
+
+        Convenience method that saves both data and models.
+        For separate control, use save_data() and save_models() individually.
+
+        Args:
+            loop: Current loop number
+            data_handlers: List of DataHandler instances (one per oracle)
+            models: List of Model instances (one per oracle)
+            config: Configuration dictionary
+            oracle_names: List of oracle names
+        """
+        self.save_data(loop, data_handlers, config, oracle_names)
+        self.save_models(loop, models, config, oracle_names)
 
     def get_latest_loop(self) -> Optional[int]:
         """Get the latest completed loop number.

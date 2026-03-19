@@ -69,7 +69,7 @@ class Engine:
             # Validate input_dim is specified somewhere (oracle level OR model.params OR generate.params)
             input_dim_oracle = oracle_config.get('input_dim')
             input_dim_model = oracle_config.get('model', {}).get('params', {}).get('input_dim')
-            input_dim_generate = oracle_config.get('generate', {}).get('params', {}).get('d')
+            input_dim_generate = (oracle_config.get('generate') or {}).get('params', {}).get('d')
 
             if input_dim_oracle is None and input_dim_model is None and input_dim_generate is None:
                 raise ValueError(
@@ -79,7 +79,7 @@ class Engine:
 
             # Validate n_initial is specified somewhere (oracle level OR generate.params)
             n_initial_oracle = oracle_config.get('n_initial')
-            n_initial_generate = oracle_config.get('generate', {}).get('params', {}).get('n')
+            n_initial_generate = (oracle_config.get('generate') or {}).get('params', {}).get('n')
 
             if n_initial_oracle is None and n_initial_generate is None:
                 raise ValueError(
@@ -106,7 +106,7 @@ class Engine:
                 model_params = oracle_config.get('model', {}).get('params', {})
                 input_dim = model_params.get('input_dim')
             if input_dim is None:
-                gen_params = oracle_config.get('generate', {}).get('params', {})
+                gen_params = (oracle_config.get('generate') or {}).get('params', {})
                 input_dim = gen_params.get('d')
 
             evaluator = Evaluator(
@@ -211,13 +211,19 @@ class Engine:
                     model = self.models[i]
                     model.train(X_train, Y_train, metadata=metadata)
 
-            # Step 5: Save checkpoint
+            # Step 5: Save data (always) and models (per checkpoint_freq)
+            # Data is always saved because oracle evaluations are expensive
+            oracle_names = [obj['name'] for obj in self.oracle_configs]
+            self.checkpoint_manager.save_data(
+                loop=self.current_loop,
+                data_handlers=self.data_handlers,
+                config=self.config,
+                oracle_names=oracle_names
+            )
             if self.current_loop % checkpoint_freq == 0:
-                print(f"Saving checkpoint at loop {self.current_loop}...")
-                oracle_names = [obj['name'] for obj in self.oracle_configs]
-                self.checkpoint_manager.save_checkpoint(
+                print(f"Saving model checkpoint at loop {self.current_loop}...")
+                self.checkpoint_manager.save_models(
                     loop=self.current_loop,
-                    data_handlers=self.data_handlers,
                     models=self.models,
                     config=self.config,
                     oracle_names=oracle_names
@@ -565,7 +571,7 @@ class Engine:
                     input_dim = oracle_config.get('input_dim')
                     if input_dim is None:
                         # Try to get from generate.params.d as last resort
-                        input_dim = oracle_config.get('generate', {}).get('params', {}).get('d')
+                        input_dim = (oracle_config.get('generate') or {}).get('params', {}).get('d')
                     if input_dim is None:
                         raise ValueError(
                             f"input_dim not found for model in oracle {i} ({oracle_config['name']})"

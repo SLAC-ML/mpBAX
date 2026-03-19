@@ -2,6 +2,7 @@
 
 import numpy as np
 import tempfile
+from pathlib import Path
 
 from mpbax.core.engine import Engine
 from mpbax.core.model import BaseModel, DummyModel
@@ -263,6 +264,81 @@ def test_engine_checkpoint_resume():
     print("  ✓ Engine checkpoint/resume passed")
 
 
+def test_engine_checkpoint_freq_preserves_data():
+    """Test that data is preserved with checkpoint_freq > 1."""
+    print("Testing checkpoint_freq data preservation...")
+
+    def oracle(X):
+        return np.sum(X**2, axis=1, keepdims=True)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = {
+            'seed': 42,
+            'max_loops': 3,
+            'checkpoint': {'dir': tmpdir, 'freq': 2},
+            'oracles': [{
+                'name': 'test',
+                'input_dim': 2,
+                'n_initial': 10,
+                'function': {'class': oracle},
+                'model': {'class': DummyModel}
+            }],
+            'algorithm': {
+                'class': GreedySampling,
+                'params': {'input_dims': [2], 'n_propose': 5, 'n_candidates': 50}
+            }
+        }
+
+        engine = Engine(config)
+        engine.run()
+
+        # Verify data files exist for ALL loops (not just freq intervals)
+        oracle_dir = Path(tmpdir) / "test"
+        assert (oracle_dir / "data_0.pkl").exists()
+        assert (oracle_dir / "data_1.pkl").exists()
+        assert (oracle_dir / "data_2.pkl").exists()
+
+        # Model files only at freq intervals (0 and 2)
+        assert (oracle_dir / "model_0_final.pkl").exists()
+        assert not (oracle_dir / "model_1_final.pkl").exists()
+        assert (oracle_dir / "model_2_final.pkl").exists()
+
+    print("  ✓ checkpoint_freq data preservation passed")
+
+
+def test_engine_generate_null():
+    """Test that generate: None (YAML null) works in config."""
+    print("Testing generate: null config...")
+
+    def oracle(X):
+        return np.sum(X**2, axis=1, keepdims=True)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = {
+            'seed': 42,
+            'max_loops': 2,
+            'checkpoint': {'dir': tmpdir, 'freq': 1},
+            'oracles': [{
+                'name': 'test',
+                'input_dim': 2,
+                'n_initial': 10,
+                'function': {'class': oracle},
+                'model': {'class': DummyModel},
+                'generate': None  # Explicitly null
+            }],
+            'algorithm': {
+                'class': RandomSampling,
+                'params': {'input_dims': [2], 'n_propose': 5}
+            }
+        }
+
+        engine = Engine(config)
+        engine.run()
+        assert engine.current_loop == 2
+
+    print("  ✓ generate: null passed")
+
+
 def run_all_tests():
     """Run all Engine tests."""
     print("\n" + "="*60)
@@ -275,6 +351,8 @@ def run_all_tests():
     test_engine_finetune_mode()
     test_engine_retrain_mode()
     test_engine_checkpoint_resume()
+    test_engine_checkpoint_freq_preserves_data()
+    test_engine_generate_null()
 
     print("\n" + "="*60)
     print("All Engine tests passed! ✓")

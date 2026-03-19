@@ -135,7 +135,7 @@ def load_data_from_loop(
     if oracle_name is None:
         # Load config to get oracle name from index
         manager = CheckpointManager(checkpoint_dir)
-        _, _, _, config, oracle_names = manager.load_checkpoint(resume_from=0)
+        _, _, _, config, oracle_names = manager.load_checkpoint(loop=0)
         oracle_name = oracle_names[oracle_idx]
 
     # Load data file for this specific loop

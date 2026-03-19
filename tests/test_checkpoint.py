@@ -197,6 +197,72 @@ def test_load_latest():
     print("  ✓ load latest passed")
 
 
+def test_data_always_saved():
+    """Test that save_data and save_models can be called independently."""
+    print("Testing save_data/save_models split...")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = CheckpointManager(tmpdir)
+        config = {'seed': 42}
+
+        # Save data for loops 0, 1, 2 but models only for 0 and 2
+        for loop_idx in range(3):
+            dh = DataHandler(input_dim=2)
+            dh.add_data(np.random.rand(5, 2), np.random.rand(5, 1), loop=loop_idx)
+            model = DummyModel(input_dim=2)
+
+            # Always save data
+            manager.save_data(loop_idx, [dh], config, ['test'])
+
+            # Only save model on even loops (simulating freq=2)
+            if loop_idx % 2 == 0:
+                manager.save_models(loop_idx, [model], config, ['test'])
+
+        # Verify all data files exist
+        oracle_dir = Path(tmpdir) / "test"
+        assert (oracle_dir / "data_0.pkl").exists()
+        assert (oracle_dir / "data_1.pkl").exists()
+        assert (oracle_dir / "data_2.pkl").exists()
+
+        # Verify model files only at freq intervals
+        assert (oracle_dir / "model_0_final.pkl").exists()
+        assert not (oracle_dir / "model_1_final.pkl").exists()
+        assert (oracle_dir / "model_2_final.pkl").exists()
+
+        # state.pkl should track latest model checkpoint (loop 2)
+        assert manager.get_latest_loop() == 2
+
+    print("  ✓ save_data/save_models split passed")
+
+
+def test_checkpoint_mode_with_training_key():
+    """Test that checkpoint_mode works with 'training' config key."""
+    print("Testing checkpoint_mode with training key...")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        manager = CheckpointManager(tmpdir)
+
+        dh = DataHandler(input_dim=2)
+        dh.add_data(np.random.rand(5, 2), np.random.rand(5, 1), loop=0)
+        model = DummyModel(input_dim=2)
+
+        # Use 'training' key (new preferred name)
+        config = {'training': {'checkpoint_mode': 'final'}}
+
+        manager.save_checkpoint(
+            loop=0,
+            data_handlers=[dh],
+            models=[model],
+            config=config,
+            oracle_names=['test']
+        )
+
+        oracle_dir = Path(tmpdir) / "test"
+        assert (oracle_dir / "model_0_final.pkl").exists()
+
+    print("  ✓ checkpoint_mode with training key passed")
+
+
 def run_all_tests():
     """Run all CheckpointManager tests."""
     print("\n" + "="*60)
@@ -208,6 +274,8 @@ def run_all_tests():
     test_rollback()
     test_oracle_naming()
     test_load_latest()
+    test_data_always_saved()
+    test_checkpoint_mode_with_training_key()
 
     print("\n" + "="*60)
     print("All CheckpointManager tests passed! ✓")
