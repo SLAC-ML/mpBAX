@@ -797,17 +797,3 @@ class DANetModel(BaseModel):
         best_model.best_network_state = copy.deepcopy(self.best_network_state)
 
         return best_model
-
-    def _validate_data(self, X: np.ndarray, Y: np.ndarray) -> None:
-        """Validate training data shapes."""
-        if X.ndim != 2 or X.shape[1] != self.input_dim:
-            raise ValueError(f"X must have shape (n, {self.input_dim}), got {X.shape}")
-        if Y.ndim != 2 or Y.shape[1] < 1:
-            raise ValueError(f"Y must have shape (n, k) where k >= 1, got {Y.shape}")
-        if X.shape[0] != Y.shape[0]:
-            raise ValueError(f"X and Y must have same number of samples")
-
-    def _validate_input(self, X: np.ndarray) -> None:
-        """Validate input shape for prediction."""
-        if X.ndim != 2 or X.shape[1] != self.input_dim:
-            raise ValueError(f"X must have shape (n, {self.input_dim}), got {X.shape}")

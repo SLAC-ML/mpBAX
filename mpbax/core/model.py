@@ -11,7 +11,7 @@ class BaseModel(ABC):
     """Abstract base class for surrogate models.
 
     All models must implement train() and predict() methods.
-    The predict() method signature must match the oracle function: X (n, d) -> Y (n, 1)
+    The predict() method signature must match the oracle function: X (n, d) -> Y (n, k) where k >= 1
     """
 
     def __init__(self, input_dim: int):
@@ -133,6 +133,37 @@ class BaseModel(ABC):
         """
         return None
 
+    def _validate_data(self, X: np.ndarray, Y: np.ndarray) -> None:
+        """Validate training data shapes.
+
+        Args:
+            X: Input data
+            Y: Output data
+
+        Raises:
+            ValueError: If shapes are invalid
+        """
+        if X.ndim != 2 or X.shape[1] != self.input_dim:
+            raise ValueError(f"X must have shape (n, {self.input_dim}), got {X.shape}")
+
+        if Y.ndim != 2 or Y.shape[1] < 1:
+            raise ValueError(f"Y must have shape (n, k) where k >= 1, got {Y.shape}")
+
+        if X.shape[0] != Y.shape[0]:
+            raise ValueError(f"X and Y must have same number of samples")
+
+    def _validate_input(self, X: np.ndarray) -> None:
+        """Validate input shape for prediction.
+
+        Args:
+            X: Input data
+
+        Raises:
+            ValueError: If shape is invalid
+        """
+        if X.ndim != 2 or X.shape[1] != self.input_dim:
+            raise ValueError(f"X must have shape (n, {self.input_dim}), got {X.shape}")
+
 
 class DummyModel(BaseModel):
     """Simple model that predicts the mean of training Y values.
@@ -211,34 +242,3 @@ class DummyModel(BaseModel):
             None (not applicable for DummyModel)
         """
         return None
-
-    def _validate_data(self, X: np.ndarray, Y: np.ndarray) -> None:
-        """Validate training data shapes.
-
-        Args:
-            X: Input data
-            Y: Output data
-
-        Raises:
-            ValueError: If shapes are invalid
-        """
-        if X.ndim != 2 or X.shape[1] != self.input_dim:
-            raise ValueError(f"X must have shape (n, {self.input_dim}), got {X.shape}")
-
-        if Y.ndim != 2 or Y.shape[1] < 1:
-            raise ValueError(f"Y must have shape (n, k) where k >= 1, got {Y.shape}")
-
-        if X.shape[0] != Y.shape[0]:
-            raise ValueError(f"X and Y must have same number of samples")
-
-    def _validate_input(self, X: np.ndarray) -> None:
-        """Validate input shape for prediction.
-
-        Args:
-            X: Input data
-
-        Raises:
-            ValueError: If shape is invalid
-        """
-        if X.ndim != 2 or X.shape[1] != self.input_dim:
-            raise ValueError(f"X must have shape (n, {self.input_dim}), got {X.shape}")

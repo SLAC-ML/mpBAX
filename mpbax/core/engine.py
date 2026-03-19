@@ -1,5 +1,6 @@
 """Engine for orchestrating the optimization workflow."""
 
+import importlib
 import numpy as np
 import yaml
 from pathlib import Path
@@ -421,7 +422,7 @@ class Engine:
                 if isinstance(fn_class_or_instance, str):
                     # String: import function/factory from module path
                     module_path, obj_name = fn_class_or_instance.rsplit('.', 1)
-                    import importlib
+
                     module = importlib.import_module(module_path)
                     fn_or_factory = getattr(module, obj_name)
                 else:
@@ -487,7 +488,7 @@ class Engine:
                     if isinstance(gen_class_or_instance, str):
                         # String: import generator/factory from module path
                         module_path, obj_name = gen_class_or_instance.rsplit('.', 1)
-                        import importlib
+    
                         module = importlib.import_module(module_path)
                         gen_or_factory = getattr(module, obj_name)
                     else:
@@ -548,7 +549,7 @@ class Engine:
                     # Import custom model via full path
                     try:
                         module_path, class_name = model_class_or_name.rsplit('.', 1)
-                        import importlib
+    
                         module = importlib.import_module(module_path)
                         model_class = getattr(module, class_name)
                     except (ValueError, ImportError, AttributeError) as e:
@@ -632,7 +633,7 @@ class Engine:
                 # e.g., "mymodule.MyAlgorithm"
                 try:
                     module_path, class_name = algo_class_or_name.rsplit('.', 1)
-                    import importlib
+
                     module = importlib.import_module(module_path)
                     algo_class = getattr(module, class_name)
                 except (ValueError, ImportError, AttributeError) as e:

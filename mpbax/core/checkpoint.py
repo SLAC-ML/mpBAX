@@ -302,10 +302,10 @@ class CheckpointManager:
                 if data_handler_combined is None:
                     data_handler_combined = data_handler
                 else:
-                    # Combine data
+                    # Combine data (pass loop to preserve loop_indices)
                     X, Y = data_handler.get_data()
                     if X is not None:
-                        data_handler_combined.add_data(X, Y)
+                        data_handler_combined.add_data(X, Y, loop=data_loop)
 
             data_handlers.append(data_handler_combined)
 
