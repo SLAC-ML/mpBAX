@@ -138,106 +138,128 @@ class Engine:
 
         # Main optimization loop
         max_loops = self.config['max_loops']
-        checkpoint_freq = self.config['checkpoint']['freq']
 
         while self.current_loop < max_loops:
             print(f"\n=== Loop {self.current_loop} ===")
-
-            # Step 1: Propose and evaluate new candidates
-            if self.current_loop > 0:
-                print("Proposing new candidates...")
-
-                # Collect all predict functions
-                fn_preds = [model.predict for model in self.models]
-
-                # Call propose ONCE with all predict functions
-                X_list = self.algorithm.propose(fn_preds)
-
-                # Validate: must return one X per oracle
-                if len(X_list) != len(self.evaluators):
-                    raise ValueError(
-                        f"Algorithm returned {len(X_list)} X arrays, "
-                        f"but expected {len(self.evaluators)} (one per oracle)"
-                    )
-
-                # Evaluate each X with corresponding oracle
-                for i, (X_new, evaluator, oracle_config) in enumerate(
-                    zip(X_list, self.evaluators, self.oracle_configs)
-                ):
-                    # Evaluate new candidates
-                    Y_new = evaluator.evaluate(X_new)
-
-                    # Create data handler for this loop's data
-                    # Get input_dim from X_new if not in config
-                    input_dim = oracle_config.get('input_dim')
-                    if input_dim is None:
-                        input_dim = X_new.shape[1]
-                    dh_new = DataHandler(input_dim=input_dim)
-                    dh_new.add_data(X_new, Y_new, loop=self.current_loop)
-
-                    # Store for checkpointing
-                    self.data_handlers[i] = dh_new
-
-            # Step 3: Get accumulated data for training
-            accumulated_data = self._get_accumulated_data()
-
-            # Step 4: Train models
-            print("Training models...")
-            # Support both 'training' (new) and 'model' (deprecated) for backward compatibility
-            training_config = self.config.get('training')
-            if training_config is None:
-                training_config = self.config.get('model', {})
-                if training_config:
-                    import warnings
-                    warnings.warn(
-                        "Using 'model' for top-level training config is deprecated. "
-                        "Please rename to 'training' in your config.",
-                        DeprecationWarning,
-                        stacklevel=2
-                    )
-            model_mode = training_config.get('mode', 'retrain')
-
-            if model_mode == 'finetune' and self.current_loop > 0:
-                # Finetuning: continue from previous model instances
-                for i, oracle_config in enumerate(self.oracle_configs):
-                    X_train, Y_train, metadata = accumulated_data[i]
-                    model = self.models[i]  # Reuse existing model instance
-                    model.train(X_train, Y_train, metadata=metadata)
-            else:
-                # Retraining: create new models from scratch (default)
-                # Or first loop in finetune mode
-                self.models = self._instantiate_models()
-                for i, oracle_config in enumerate(self.oracle_configs):
-                    X_train, Y_train, metadata = accumulated_data[i]
-                    model = self.models[i]
-                    model.train(X_train, Y_train, metadata=metadata)
-
-            # Step 5: Save data (always) and models (per checkpoint_freq)
-            # Data is always saved because oracle evaluations are expensive
-            oracle_names = [obj['name'] for obj in self.oracle_configs]
-            self.checkpoint_manager.save_data(
-                loop=self.current_loop,
-                data_handlers=self.data_handlers,
-                config=self.config,
-                oracle_names=oracle_names
-            )
-            if self.current_loop % checkpoint_freq == 0:
-                print(f"Saving model checkpoint at loop {self.current_loop}...")
-                self.checkpoint_manager.save_models(
-                    loop=self.current_loop,
-                    models=self.models,
-                    config=self.config,
-                    oracle_names=oracle_names
-                )
-
-            # Print progress
-            self._print_progress()
-
-            # Move to next loop
+            self._run_loop_iteration()
             self.current_loop += 1
 
         print(f"\n=== Optimization completed after {max_loops} loops ===")
         self._print_final_summary()
+
+    def _run_loop_iteration(self) -> None:
+        """Run one iteration of the optimization loop.
+
+        Override this method to implement custom optimization logic.
+        Default behavior: propose → evaluate → train → checkpoint.
+        """
+        if self.current_loop > 0:
+            self._propose_and_evaluate()
+
+        accumulated_data = self._get_accumulated_data()
+        self._train_models(accumulated_data)
+        self._checkpoint()
+        self._print_progress()
+
+    def _propose_and_evaluate(self) -> None:
+        """Propose candidates via algorithm and evaluate with oracles.
+
+        Override for custom proposal/evaluation pipelines (e.g., predict
+        intermediate parameters, run simulation, then compute objectives).
+        """
+        print("Proposing new candidates...")
+
+        # Collect all predict functions
+        fn_preds = [model.predict for model in self.models]
+
+        # Call propose ONCE with all predict functions
+        X_list = self.algorithm.propose(fn_preds)
+
+        # Validate: must return one X per oracle
+        if len(X_list) != len(self.evaluators):
+            raise ValueError(
+                f"Algorithm returned {len(X_list)} X arrays, "
+                f"but expected {len(self.evaluators)} (one per oracle)"
+            )
+
+        # Evaluate each X with corresponding oracle
+        for i, (X_new, evaluator, oracle_config) in enumerate(
+            zip(X_list, self.evaluators, self.oracle_configs)
+        ):
+            # Evaluate new candidates
+            Y_new = evaluator.evaluate(X_new)
+
+            # Create data handler for this loop's data
+            # Get input_dim from X_new if not in config
+            input_dim = oracle_config.get('input_dim')
+            if input_dim is None:
+                input_dim = X_new.shape[1]
+            dh_new = DataHandler(input_dim=input_dim)
+            dh_new.add_data(X_new, Y_new, loop=self.current_loop)
+
+            # Store for checkpointing
+            self.data_handlers[i] = dh_new
+
+    def _train_models(self, accumulated_data: List[tuple]) -> None:
+        """Train all models on accumulated data.
+
+        Override for custom training logic (e.g., conditional retraining
+        based on domain-specific criteria, training on different data).
+
+        Args:
+            accumulated_data: List of (X, Y, metadata) tuples, one per oracle
+        """
+        print("Training models...")
+        # Support both 'training' (new) and 'model' (deprecated) for backward compatibility
+        training_config = self.config.get('training')
+        if training_config is None:
+            training_config = self.config.get('model', {})
+            if training_config:
+                import warnings
+                warnings.warn(
+                    "Using 'model' for top-level training config is deprecated. "
+                    "Please rename to 'training' in your config.",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+        model_mode = training_config.get('mode', 'retrain')
+
+        if model_mode == 'finetune' and self.current_loop > 0:
+            # Finetuning: continue from previous model instances
+            for i, oracle_config in enumerate(self.oracle_configs):
+                X_train, Y_train, metadata = accumulated_data[i]
+                model = self.models[i]  # Reuse existing model instance
+                model.train(X_train, Y_train, metadata=metadata)
+        else:
+            # Retraining: create new models from scratch (default)
+            # Or first loop in finetune mode
+            self.models = self._instantiate_models()
+            for i, oracle_config in enumerate(self.oracle_configs):
+                X_train, Y_train, metadata = accumulated_data[i]
+                model = self.models[i]
+                model.train(X_train, Y_train, metadata=metadata)
+
+    def _checkpoint(self) -> None:
+        """Save data and model checkpoints.
+
+        Override for custom checkpoint logic (e.g., saving additional state).
+        """
+        checkpoint_freq = self.config['checkpoint']['freq']
+        oracle_names = [obj['name'] for obj in self.oracle_configs]
+        self.checkpoint_manager.save_data(
+            loop=self.current_loop,
+            data_handlers=self.data_handlers,
+            config=self.config,
+            oracle_names=oracle_names
+        )
+        if self.current_loop % checkpoint_freq == 0:
+            print(f"Saving model checkpoint at loop {self.current_loop}...")
+            self.checkpoint_manager.save_models(
+                loop=self.current_loop,
+                models=self.models,
+                config=self.config,
+                oracle_names=oracle_names
+            )
 
     def _initialize_fresh_run(self) -> None:
         """Initialize a fresh optimization run with random data."""
