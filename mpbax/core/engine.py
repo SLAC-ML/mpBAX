@@ -125,6 +125,7 @@ class Engine:
         self.current_loop = 0
         self.data_handlers = []
         self.models = []
+        self._models_updated = False
 
     def run(self) -> None:
         """Run the optimization loop."""
@@ -157,6 +158,7 @@ class Engine:
             self._propose_and_evaluate()
 
         accumulated_data = self._get_accumulated_data()
+        self._models_updated = False
         self._train_models(accumulated_data)
         self._checkpoint()
         self._print_progress()
@@ -239,6 +241,8 @@ class Engine:
                 model = self.models[i]
                 model.train(X_train, Y_train, metadata=metadata)
 
+        self._models_updated = True
+
     def _checkpoint(self) -> None:
         """Save data and model checkpoints.
 
@@ -252,7 +256,7 @@ class Engine:
             config=self.config,
             oracle_names=oracle_names
         )
-        if self.current_loop % checkpoint_freq == 0:
+        if self._models_updated and self.current_loop % checkpoint_freq == 0:
             print(f"Saving model checkpoint at loop {self.current_loop}...")
             self.checkpoint_manager.save_models(
                 loop=self.current_loop,
